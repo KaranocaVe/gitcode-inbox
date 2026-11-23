@@ -300,10 +300,8 @@ export function loadSettings(host, api, session, refresh) {
     host.append(section);
     loadOptions(holder, api);
   }
-  if (!session.demo) {
-    host.append(webSession(api, session, refresh));
-    const keys = apiKeys(api, session.admin);
-    host.append(keys.section);
-    keys.load();
-  }
+  if (!session.demo) host.append(webSession(api, session, refresh));
+  const keys = apiKeys(api, session.admin);
+  host.append(keys.section);
+  keys.load();
 }

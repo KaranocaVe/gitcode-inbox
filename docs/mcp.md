@@ -45,4 +45,4 @@ MCP 和 Web 使用同一账户的未读快照、上游凭据和请求配额。�
 
 传输采用无状态 Streamable HTTP。客户端向同一个 URL 发送 JSON-RPC POST 请求，通过 `initialize` 协商版本，再发送 `notifications/initialized` 和后续请求。服务支持 `2025-11-25` 和 `2025-06-18`。请求结果同时包含结构化数据和文本内容。工具业务错误通过 `isError` 和结构化错误返回。服务级限流使用 HTTP 429 与 `Retry-After`。
 
-本地 `INBOX_MODE=demo` 可使用 HTTP 测试。生产要求 HTTPS。来自浏览器的 `Origin` 必须匹配部署站点地址。
+本地 `INBOX_MODE=demo` 可在设置页面签发演示令牌，再通过 HTTP 测试。生产要求 HTTPS。来自浏览器的 `Origin` 必须匹配部署站点地址。
