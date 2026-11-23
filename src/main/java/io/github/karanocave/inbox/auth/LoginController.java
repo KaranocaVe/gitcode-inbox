@@ -32,6 +32,7 @@ class LoginController {
 
     @GetMapping("/oauth/login")
     ResponseEntity<Void> login(HttpServletRequest request) {
+        auth.requireInteractiveSession(request);
         auth.requireTransport(request);
         if (!auth.oauthLogin()) {
             return redirectHome(request);
@@ -52,6 +53,7 @@ class LoginController {
             @RequestParam(required = false) String state,
             @RequestParam(required = false) String error
     ) {
+        auth.requireInteractiveSession(request);
         auth.requireTransport(request);
         if (!auth.oauthLogin()) {
             return redirectHome(request);

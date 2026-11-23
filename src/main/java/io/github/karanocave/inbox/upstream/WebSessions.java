@@ -73,6 +73,21 @@ public class WebSessions {
         linkVerified(account, gitcode.identity(access), credentials);
     }
 
+    public void replaceLinked(Account account, String access, String refresh) {
+        var secret = new GitCodeWeb.Refreshed(access, refresh);
+        validate(secret);
+        var identity = gitcode.identity(access);
+        var lock = lock(account);
+        lock.lock();
+        try {
+            int changed = jdbc.update("UPDATE linked_web_sessions SET credentials=? WHERE account_id=? AND web_id=?",
+                    encrypt(account, new Secret(access, refresh)), account.id(), identity.id());
+            if (changed == 0) throw mismatch();
+        } finally {
+            lock.unlock();
+        }
+    }
+
     public void linkVerified(Account account, GitCodeWeb.Identity identity, GitCodeWeb.Refreshed secret) {
         validate(secret);
         if (!identity.username().equalsIgnoreCase(account.username())) throw mismatch();

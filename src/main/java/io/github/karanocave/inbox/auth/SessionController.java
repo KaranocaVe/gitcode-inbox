@@ -43,12 +43,13 @@ class SessionController {
     @GetMapping
     ResponseEntity<SessionInfo> session(HttpServletRequest request) {
         Account account = auth.sessionAccount(request);
-        String error = LoginController.takeError(request);
+        boolean fixedAccount = auth.fixedAccountMode();
+        String error = fixedAccount ? null : LoginController.takeError(request);
         boolean authenticated = account != null;
         var info = new SessionInfo(
-                authenticated, account, auth.isAdmin(account), auth.demo(), auth.passwordLogin(),
+                authenticated, account, auth.isAdmin(account), auth.demo(), auth.passwordLogin(), fixedAccount,
                 authenticated && webSessions.linked(account),
-                authenticated || auth.passwordLogin() ? auth.csrfToken(request) : null,
+                !fixedAccount && (authenticated || auth.passwordLogin()) ? auth.csrfToken(request) : null,
                 auth.oauthLogin() ? request.getContextPath() + "/oauth/login" : null,
                 error
         );
@@ -57,6 +58,7 @@ class SessionController {
 
     @PostMapping(value = "/login", consumes = MediaType.APPLICATION_JSON_VALUE)
     ResponseEntity<Void> login(HttpServletRequest request, @RequestBody LoginRequest payload) {
+        auth.requireInteractiveSession(request);
         auth.requireBrowser(request);
         if (!auth.passwordLogin()) {
             throw new EngineException(404, "password_login_disabled", "GitCode 密码登录未启用。", Map.of());
@@ -108,8 +110,8 @@ class SessionController {
         return ResponseEntity.noContent().cacheControl(CacheControl.noStore()).build();
     }
 
-    record SessionInfo(boolean authenticated, Account account, boolean admin, boolean demo, boolean passwordLogin, boolean linked,
-                       String csrfToken, String loginUrl, String error) {}
+    record SessionInfo(boolean authenticated, Account account, boolean admin, boolean demo, boolean passwordLogin,
+                       boolean fixedAccount, boolean linked, String csrfToken, String loginUrl, String error) {}
 
     record KeyList(List<IdentityStore.KeyInfo> items) {}
 

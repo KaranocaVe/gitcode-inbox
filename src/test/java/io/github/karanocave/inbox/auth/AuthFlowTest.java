@@ -236,7 +236,7 @@ class AuthFlowTest {
     @Test
     void accessPrefixRequiresTwoAlphanumericSegments() {
         for (String invalid : new String[] {"/a8K2", "/a8K2/7mQp/", "/a8K2//7mQp", "/abc/1234", "/1234/ab-c"}) {
-            assertThatThrownBy(() -> new AuthSettings("demo", "", "", "", "", invalid, "oauth", ""))
+            assertThatThrownBy(() -> new AuthSettings("demo", "", "", "", "", invalid, "oauth", "", ""))
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessageContaining("INBOX_ACCESS_PREFIX");
         }
@@ -344,12 +344,26 @@ class AuthFlowTest {
     @Test
     void passwordModeRequiresAnAccountAndDoesNotRequireOAuthCredentials() {
         assertThatThrownBy(() -> new AuthSettings("production", "https://inbox.example.test", "", "",
-                "", "", "password", ""))
+                "", "", "password", "", ""))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("INBOX_PASSWORD_ACCOUNT");
         var settings = new AuthSettings("production", "https://inbox.example.test", "", "",
-                "", "", "password", ALICE.id());
+                "", "", "password", ALICE.id(), "");
         assertThat(settings.passwordLogin).isTrue();
         assertThat(settings.oauthLogin()).isFalse();
+    }
+
+    @Test
+    void fixedModeRequiresAPersistedAccountIdAndTwoFourCharacterSegments() {
+        for (String invalid : new String[] {"", "/abcd", "/abcd/12345"}) {
+            assertThatThrownBy(() -> new AuthSettings("production", "https://inbox.example.test", "", "",
+                    "", invalid, "fixed", "", ALICE.id()))
+                    .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("INBOX_ACCESS_PREFIX");
+        }
+        for (String invalid : new String[] {"", "demo"}) {
+            assertThatThrownBy(() -> new AuthSettings("production", "https://inbox.example.test", "", "",
+                    "", "/abcd/1234", "fixed", "", invalid))
+                    .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("INBOX_FIXED_ACCOUNT_ID");
+        }
     }
 
     @Test
@@ -375,14 +389,14 @@ class AuthFlowTest {
 
     private void initialize(String mode, String prefix) {
         var settings = new AuthSettings(mode, "https://inbox.example.test/", "client-test",
-                "secret-test", "id:alice-id, named-admin", prefix, "oauth", "");
+                "secret-test", "id:alice-id, named-admin", prefix, "oauth", "", "");
         initialize(settings);
     }
 
     private void initializePasswordMode() {
         database.destroy();
         var settings = new AuthSettings("production", "https://inbox.example.test/", "", "",
-                "id:alice-id", "", "password", ALICE.id());
+                "id:alice-id", "", "password", ALICE.id(), "");
         initialize(settings);
     }
 

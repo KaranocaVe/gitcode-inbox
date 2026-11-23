@@ -13,6 +13,7 @@ services:
     environment:
       INBOX_MODE: ${INBOX_MODE:-production}
       INBOX_AUTH_MODE: ${INBOX_AUTH_MODE:-oauth}
+      INBOX_FIXED_ACCOUNT_ID: ${INBOX_FIXED_ACCOUNT_ID:-}
       INBOX_PASSWORD_ACCOUNT: ${INBOX_PASSWORD_ACCOUNT:-}
       INBOX_DB: ${INBOX_DB:-/data/inbox.sqlite}
       INBOX_PUBLIC_URL: ${INBOX_PUBLIC_URL:-}

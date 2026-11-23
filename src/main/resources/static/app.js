@@ -34,7 +34,8 @@ async function api(path, {method = "GET", body, signal} = {}) {
   if (response.ok && data != null) return data;
   const header = response.headers.get("Retry-After");
   const retryAfter = header && /^\d+$/.test(header) ? Number(header) : Math.max(0, (Date.parse(header) - Date.now()) / 1000);
-  if (response.status === 401 && session?.authenticated && state.session === session && path !== "/session") {
+  if (response.status === 401 && session?.authenticated && !session.fixed_account
+      && state.session === session && path !== "/session") {
     discoverSession("会话已过期，请重新登录。", true);
   }
   if (response.status === 429 && state.session?.authenticated) {
@@ -51,6 +52,9 @@ async function api(path, {method = "GET", body, signal} = {}) {
 function report(error, node = byId("feedback")) {
   if (error.name === "AbortError" || !state.session?.authenticated) return;
   notice(node, errorText(error), "error");
+  if (state.session.fixed_account && ["session_expired", "web_session_required"].includes(error.data?.error)) {
+    node.append(" ", webSettingsLink("更新网页会话"));
+  }
 }
 
 function loginUrl(value) {
@@ -124,7 +128,7 @@ async function discoverSession(message = "", focus = false) {
     byId("account-area").hidden = false;
     const username = typeof session.account === "string" ? session.account : session.account?.username;
     byId("account-name").textContent = username ? "@" + username : "";
-    byId("logout").hidden = !!session.demo;
+    byId("logout").hidden = !!(session.demo || session.fixed_account);
     byId("navigation").querySelector('[href="#dashboard"]').hidden = !session.admin;
     renderRoute(focus);
   } catch (error) {
@@ -198,6 +202,12 @@ function refreshLink(isLinked) {
   }
 }
 
+function webSettingsLink(text, className) {
+  const link = element("a", text, className);
+  link.href = "#settings";
+  return link;
+}
+
 function paintUnlinked() {
   byId("inbox-board").classList.add("is-unassigned");
   closeMobileDetail();
@@ -207,10 +217,9 @@ function paintUnlinked() {
   byId("pager").hidden = true;
   byId("detail").hidden = true;
   const target = byId("rows");
-  const box = boxMessage("关联 GitCode 网页会话以同步通知。");
-  const link = element("a", "关联网页会话", "button primary");
-  link.href = "#settings";
-  box.append(link);
+  const fixed = state.session.fixed_account;
+  const box = boxMessage(fixed ? "固定账户缺少 GitCode 网页会话。更新会话后即可同步通知。" : "关联 GitCode 网页会话以同步通知。");
+  box.append(webSettingsLink(fixed ? "更新网页会话" : "关联网页会话", "button primary"));
   target.replaceChildren(box);
   target.setAttribute("aria-busy", "false");
 }
@@ -242,7 +251,14 @@ function paintStatus() {
   if (state.route === "inbox") setPageHeading();
   const banner = byId("service-notice");
   if (state.route !== "inbox" || !linked()) notice(banner, "");
-  else if (status?.last_error) notice(banner, status.last_error, "error");
+  else if (status?.last_error) {
+    if (state.session.fixed_account && /GitCode Web 会话.*(?:过期|无效|刷新失败)/.test(status.last_error)) {
+      if (banner.firstChild?.nodeValue !== status.last_error || !banner.querySelector("a")) {
+        notice(banner, status.last_error, "error");
+        banner.append(" ", webSettingsLink("更新网页会话"));
+      }
+    } else notice(banner, status.last_error, "error");
+  }
   else if (status?.dry_run) notice(banner, "标记已读为预演。");
   else if (state.session?.demo) notice(banner, "演示数据，可试用同步和标记已读。");
   else notice(banner, "");
@@ -645,6 +661,7 @@ byId("password-login").addEventListener("submit", async (event) => {
   }
 });
 byId("logout").addEventListener("click", async () => {
+  if (state.session?.fixed_account) return;
   byId("logout").disabled = true;
   try {
     await api("/session/logout", {method: "POST"});

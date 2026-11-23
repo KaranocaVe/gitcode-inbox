@@ -15,9 +15,12 @@ import java.util.stream.Collectors;
 final class AuthSettings {
     static final Account DEMO_ACCOUNT = new Account("demo", "demo");
     private static final Pattern ACCESS_PREFIX = Pattern.compile("/[A-Za-z0-9]{4,32}/[A-Za-z0-9]{4,32}");
+    private static final Pattern FIXED_ACCESS_PREFIX = Pattern.compile("/[A-Za-z0-9]{4}/[A-Za-z0-9]{4}");
 
     final boolean demo;
     final boolean passwordLogin;
+    final boolean fixedAccountMode;
+    final String fixedAccountId;
     final String clientId;
     final String clientSecret;
     final String callbackUrl;
@@ -33,16 +36,19 @@ final class AuthSettings {
             @Value("${INBOX_ADMIN_USERS:}") String adminUsers,
             @Value("${server.servlet.context-path:}") String accessPrefix,
             @Value("${INBOX_AUTH_MODE:oauth}") String authMode,
-            @Value("${INBOX_PASSWORD_ACCOUNT:}") String passwordAccountId
+            @Value("${INBOX_PASSWORD_ACCOUNT:}") String passwordAccountId,
+            @Value("${INBOX_FIXED_ACCOUNT_ID:}") String fixedAccountId
     ) {
         if (!mode.equals("production") && !mode.equals("demo")) {
             throw new IllegalArgumentException("INBOX_MODE must be production or demo");
         }
         demo = mode.equals("demo");
-        if (!authMode.equals("oauth") && !authMode.equals("password")) {
-            throw new IllegalArgumentException("INBOX_AUTH_MODE must be oauth or password");
+        if (!authMode.equals("oauth") && !authMode.equals("password") && !authMode.equals("fixed")) {
+            throw new IllegalArgumentException("INBOX_AUTH_MODE must be oauth, password, or fixed");
         }
         passwordLogin = !demo && authMode.equals("password");
+        fixedAccountMode = !demo && authMode.equals("fixed");
+        this.fixedAccountId = fixedAccountId.strip();
         this.passwordAccountId = passwordAccountId.strip();
         if (passwordLogin && (this.passwordAccountId.isEmpty() || this.passwordAccountId.equals(DEMO_ACCOUNT.id()))) {
             throw new IllegalArgumentException("INBOX_PASSWORD_ACCOUNT must be a GitCode Web account ID in password mode");
@@ -51,6 +57,14 @@ final class AuthSettings {
             throw new IllegalArgumentException("GITCODE_CLIENT_ID and GITCODE_CLIENT_SECRET are required in production");
         }
 
+        if (fixedAccountMode) {
+            if (!FIXED_ACCESS_PREFIX.matcher(accessPrefix).matches()) {
+                throw new IllegalArgumentException("INBOX_ACCESS_PREFIX must have two four-character alphanumeric segments in fixed mode");
+            }
+            if (this.fixedAccountId.isEmpty() || this.fixedAccountId.equals(DEMO_ACCOUNT.id())) {
+                throw new IllegalArgumentException("INBOX_FIXED_ACCOUNT_ID must identify a persisted GitCode account in fixed mode");
+            }
+        }
         if (!accessPrefix.isEmpty() && !ACCESS_PREFIX.matcher(accessPrefix).matches()) {
             throw new IllegalArgumentException("INBOX_ACCESS_PREFIX must have two alphanumeric segments of 4–32 characters");
         }
@@ -65,12 +79,15 @@ final class AuthSettings {
     }
 
     boolean oauthLogin() {
-        return !demo && !passwordLogin;
+        return !demo && !passwordLogin && !fixedAccountMode;
     }
 
     boolean allowsAccount(String id) {
         if (demo) {
             return DEMO_ACCOUNT.id().equals(id);
+        }
+        if (fixedAccountMode) {
+            return fixedAccountId.equals(id);
         }
         return passwordLogin ? passwordAccountId.equals(id) : !DEMO_ACCOUNT.id().equals(id);
     }
@@ -78,6 +95,9 @@ final class AuthSettings {
     boolean isAdmin(Account account) {
         if (demo) {
             return account.equals(DEMO_ACCOUNT);
+        }
+        if (fixedAccountMode) {
+            return fixedAccountId.equals(account.id());
         }
         return adminUsers.stream().anyMatch(value -> value.startsWith("id:")
                 ? value.substring(3).equals(account.id())

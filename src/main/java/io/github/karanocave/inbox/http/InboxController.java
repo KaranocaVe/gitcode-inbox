@@ -94,10 +94,15 @@ public class InboxController {
 
     @PutMapping("/session/web")
     Map<String, Boolean> connect(HttpServletRequest request, @RequestBody WebCredentials credentials) {
-        Account account = auth.requireSession(request);
+        boolean fixed = auth.fixedAccountMode();
+        Account account = fixed ? auth.requireAdmin(request) : auth.requireSession(request);
         gate.api(account);
         if (auth.demo()) throw error(400, "demo_mode", "演示模式使用示例通知。");
-        sessions.link(account, credentials.accessToken(), credentials.refreshToken());
+        if (fixed) {
+            sessions.replaceLinked(account, credentials.accessToken(), credentials.refreshToken());
+        } else {
+            sessions.link(account, credentials.accessToken(), credentials.refreshToken());
+        }
         poller.reset(account);
         return Map.of("linked", true);
     }

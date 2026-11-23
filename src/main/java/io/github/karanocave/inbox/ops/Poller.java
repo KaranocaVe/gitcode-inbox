@@ -1,5 +1,6 @@
 package io.github.karanocave.inbox.ops;
 
+import io.github.karanocave.inbox.auth.RequestAuth;
 import io.github.karanocave.inbox.engine.*;
 import io.github.karanocave.inbox.upstream.NotificationClient;
 import io.github.karanocave.inbox.upstream.WebSessions;
@@ -28,14 +29,16 @@ public class Poller {
     private final ThreadPoolExecutor workers = new ThreadPoolExecutor(2, 2, 0L, TimeUnit.SECONDS,
             new ArrayBlockingQueue<>(8), Thread.ofPlatform().daemon().name("inbox-poll-", 0).factory());
     private final ConcurrentMap<String, Plan> plans = new ConcurrentHashMap<>();
+    private final RequestAuth auth;
     private final WebSessions sessions;
     private final NotificationClient source;
     private final RuntimeSettings settings;
     private final InboxOperations operations;
     private final Clock clock;
 
-    public Poller(WebSessions sessions, NotificationClient source, RuntimeSettings settings,
+    public Poller(RequestAuth auth, WebSessions sessions, NotificationClient source, RuntimeSettings settings,
                   InboxOperations operations, Clock clock) {
+        this.auth = auth;
         this.sessions = sessions;
         this.source = source;
         this.settings = settings;
@@ -48,10 +51,10 @@ public class Poller {
         int interval = settings.get().pollSeconds();
         if (interval == 0) return;
         var accounts = source.demo() ? List.of(new Account("demo", "demo")) : sessions.accounts();
-        var byId = accounts.stream().collect(Collectors.toMap(Account::id, Function.identity()));
+        var byId = accounts.stream().filter(account -> auth.allowsAccount(account.id())).collect(Collectors.toMap(Account::id, Function.identity()));
         plans.keySet().removeIf(id -> !byId.containsKey(id));
         Instant now = clock.instant();
-        for (var account : accounts) {
+        for (var account : byId.values()) {
             Plan plan = plans.computeIfAbsent(account.id(), unused -> new Plan());
             if (plan.active || plan.pausedUntil.isAfter(now) || plan.lastStarted.plusSeconds(interval).isAfter(now)) continue;
             plan.active = true;

@@ -44,9 +44,21 @@ INBOX_PASSWORD_ACCOUNT=填入GitCode Web用户ID
 
 GitCode Web 用户 ID 可从已登录账号的 Web `/uc/api/v1/user/oauth/userInfo` 响应中的 `id` 获取。设置管理员时也可使用 `INBOX_ADMIN_USERS=id:<同一个用户ID>`。用户在 HTTPS 登录表单输入 GitCode 账号和密码。服务向 GitCode 发起登录，核对返回的用户 ID，并加密保存 Web 会话令牌。账号密码仅用于当次登录。若 GitCode 要求额外验证，用户需要在 GitCode 官网完成。
 
+## 固定账号部署
+
+首次部署以 OAuth 或密码模式登录一次，并关联同一 GitCode 账号的 Web access token 和 refresh token。读取 `inbox_auth_accounts` 表内该账号的 `id`，在原部署目录增加以下设置，再重建服务容器。
+
+```dotenv
+INBOX_AUTH_MODE=fixed
+INBOX_FIXED_ACCOUNT_ID=填入已关联账号的数据库ID
+INBOX_ACCESS_PREFIX=/a8K2/7mQp
+```
+
+沿用原数据卷和 `INBOX_TOKEN_KEY`。两段前缀各须为四个随机字母或数字，示例值仅用于说明，可将上面的生成命令改为每段抽取四次。代理按完整前缀转发，并停用该路径的访问日志。所有持有此 URL 的调用者共享该账号的读写和管理权限。后台持续同步并刷新 GitCode 会话。GitCode 撤销令牌后，可在设置页更新同一账号的 Web 会话。
+
 ## 访问与更新
 
-启用前缀后，浏览器打开 `https://inbox.example.com/a8K2/7mQp/`，脚本调用 `https://inbox.example.com/a8K2/7mQp/api/v1/...`。轮换前缀时同步更新 GitCode 回调 URL、客户端请求地址与部署配置，再重建服务容器。
+启用前缀后，浏览器打开 `https://inbox.example.com/a8K2/7mQp/`，脚本调用 `https://inbox.example.com/a8K2/7mQp/api/v1/...`。轮换前缀时同步更新代理、客户端请求地址与部署配置，再重建服务容器。OAuth 模式还需要更新 GitCode 回调 URL。
 
 `inbox-data` 卷保存数据库、在线设置和加密后的 Web 会话。备份使用停止后的卷或 SQLite 一致性备份，并单独保管 `INBOX_TOKEN_KEY`。每个数据库供一个服务实例使用。 `INBOX_DRY_RUN=true` 可将已读请求全局切换为预演。
 

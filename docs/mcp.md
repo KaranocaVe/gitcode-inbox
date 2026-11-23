@@ -1,6 +1,6 @@
 # MCP 接入
 
-在 GitCode 收件箱的 Web 设置中创建个人 API 令牌。在 MCP 客户端添加一个 **Streamable HTTP** 服务，URL 为收件箱地址加 `/mcp`。启用两段式前缀时，在 `/mcp` 前保留这两段。每次连接和调用都发送 `Authorization: Bearer <令牌>`。
+固定账号模式使用带访问前缀的 URL 连接，省略下面示例中的 `headers`。此模式提供全部收件箱与管理工具。OAuth 或密码模式在 GitCode 收件箱的 Web 设置中创建个人 API 令牌。在 MCP 客户端添加一个 **Streamable HTTP** 服务，URL 为收件箱地址加 `/mcp`。启用两段式前缀时，在 `/mcp` 前保留这两段。使用个人令牌时，每次请求发送 `Authorization: Bearer <令牌>`。
 
 下面是使用通用 MCP 客户端配置形式的示例。按客户端的配置格式填写 URL 和请求头。
 

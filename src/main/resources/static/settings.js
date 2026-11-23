@@ -120,17 +120,19 @@ function webSession(api, session, refresh) {
   section.append(body);
 
   function render(linked, result) {
-    const description = element("p", linked ?
+    const guidance = session.fixed_account ?
+      "请使用已配置的 GitCode 账户的网页令牌。会话缺失或过期时，可在此更新。" : linked ?
       "已关联同一 GitCode 账户的网页会话。会话过期时可在此更新。" :
-      "关联同一 GitCode 账户的网页会话后，可以读取并更新通知。", "settings-note");
+      "关联同一 GitCode 账户的网页会话后，可以读取并更新通知。";
+    const description = element("p", guidance, "settings-note");
     const form = element("form", null, "settings-form credential-form");
     const fields = element("fieldset", null, "settings-fields");
     const access = labelAndInput("网页访问令牌", "access_token", "password", {required: true, maxLength: 16384});
     const refreshInput = labelAndInput("网页刷新令牌（可选）", "refresh_token", "password", {maxLength: 16384});
     const controls = element("div", null, "form-actions");
-    const submit = element("button", linked ? "更新会话" : "关联会话", "button primary");
+    const submit = element("button", linked || session.fixed_account ? "更新会话" : "关联会话", "button primary");
     submit.type = "submit";
-    if (linked) {
+    if (linked && !session.fixed_account) {
       controls.append(button("断开会话", () => {
         if (window.confirm("断开网页会话并停止同步通知？")) update("DELETE");
       }));
@@ -147,7 +149,10 @@ function webSession(api, session, refresh) {
         await api("/session/web", {method, body: credentials});
         form.reset();
         refresh(method === "PUT");
-        if (body.isConnected) render(method === "PUT", method === "PUT" ? "网页会话已关联。" : "网页会话已断开。");
+        if (body.isConnected) {
+          const success = session.fixed_account ? "网页会话已更新。" : "网页会话已关联。";
+          render(method === "PUT", method === "PUT" ? success : "网页会话已断开。");
+        }
       } catch (error) {
         notice(status, errorText(error), "error");
       } finally {
@@ -301,7 +306,9 @@ export function loadSettings(host, api, session, refresh) {
     loadOptions(holder, api);
   }
   if (!session.demo) host.append(webSession(api, session, refresh));
-  const keys = apiKeys(api, session.admin);
-  host.append(keys.section);
-  keys.load();
+  if (!session.fixed_account) {
+    const keys = apiKeys(api, session.admin);
+    host.append(keys.section);
+    keys.load();
+  }
 }

@@ -27,6 +27,9 @@ public final class RequestAuth {
 
     public Account requireInbox(HttpServletRequest request) {
         requireTransport(request);
+        if (fixedAccountMode()) {
+            return fixedAccount();
+        }
         if (request.getHeader(HttpHeaders.AUTHORIZATION) == null) {
             return requireSession(request);
         }
@@ -37,10 +40,10 @@ public final class RequestAuth {
 
     public McpIdentity requireMcp(HttpServletRequest request) {
         requireTransport(request);
-        String origin = request.getHeader(HttpHeaders.ORIGIN);
-        if (origin != null && !origin.equals(settings.publicOrigin)) {
-            throw new EngineException(403, "invalid_origin", "Origin is not allowed", Map.of());
+        if (fixedAccountMode()) {
+            return new McpIdentity(fixedAccount(), true);
         }
+        requireOrigin(request);
         var key = requireKey(request);
         return new McpIdentity(key.account(), IdentityStore.MCP_ADMIN_SCOPE.equals(key.scope())
                 && isAdmin(key.account()));
@@ -59,6 +62,7 @@ public final class RequestAuth {
     }
 
     public Account requireSession(HttpServletRequest request) {
+        requireInteractiveSession(request);
         Account account = sessionAccount(request);
         if (account == null) {
             throw new EngineException(401, "sign_in_required", "Sign in to GitCode to continue", Map.of());
@@ -70,7 +74,7 @@ public final class RequestAuth {
     }
 
     public Account requireAdmin(HttpServletRequest request) {
-        Account account = requireSession(request);
+        Account account = fixedAccountMode() ? sessionAccount(request) : requireSession(request);
         if (!isAdmin(account)) {
             throw new EngineException(403, "admin_required", "An administrator account is required", Map.of());
         }
@@ -85,6 +89,10 @@ public final class RequestAuth {
         return settings.demo;
     }
 
+    public boolean fixedAccountMode() {
+        return settings.fixedAccountMode;
+    }
+
     boolean oauthLogin() {
         return settings.oauthLogin();
     }
@@ -93,7 +101,7 @@ public final class RequestAuth {
         return settings.passwordLogin;
     }
 
-    boolean allowsAccount(String id) {
+    public boolean allowsAccount(String id) {
         return settings.allowsAccount(id);
     }
 
@@ -101,9 +109,23 @@ public final class RequestAuth {
         if (!demo() && !request.isSecure()) {
             throw new EngineException(403, "https_required", "HTTPS is required", Map.of());
         }
+        if (fixedAccountMode()) {
+            requireOrigin(request);
+        }
+    }
+
+    void requireInteractiveSession(HttpServletRequest request) {
+        if (fixedAccountMode()) {
+            requireTransport(request);
+            throw new EngineException(404, "fixed_account_mode", "固定账号模式无需登录会话。", Map.of());
+        }
     }
 
     Account sessionAccount(HttpServletRequest request) {
+        if (fixedAccountMode()) {
+            requireTransport(request);
+            return fixedAccount();
+        }
         requireBrowser(request);
         if (demo()) {
             return AuthSettings.DEMO_ACCOUNT;
@@ -111,6 +133,22 @@ public final class RequestAuth {
         HttpSession session = request.getSession(false);
         String id = session == null ? null : (String) session.getAttribute(ID);
         return id == null || !settings.allowsAccount(id) ? null : store.findAccount(id);
+    }
+
+    private Account fixedAccount() {
+        Account account = store.findAccount(settings.fixedAccountId);
+        if (account == null) {
+            throw new EngineException(503, "fixed_account_unavailable", "收件箱的固定账号不可用。", Map.of());
+        }
+        return account;
+    }
+
+    private void requireOrigin(HttpServletRequest request) {
+        var origins = request.getHeaders(HttpHeaders.ORIGIN);
+        if (origins.hasMoreElements()
+                && (!origins.nextElement().equals(settings.publicOrigin) || origins.hasMoreElements())) {
+            throw new EngineException(403, "invalid_origin", "Origin is not allowed", Map.of());
+        }
     }
 
     void requireBrowser(HttpServletRequest request) {
