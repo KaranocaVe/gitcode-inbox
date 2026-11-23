@@ -36,3 +36,4 @@ management:
 logging:
   level:
     org.springframework.boot.web.embedded.tomcat.TomcatWebServer: WARN
+    org.apache.catalina.core.ContainerBase: WARN
