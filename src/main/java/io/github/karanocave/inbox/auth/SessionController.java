@@ -38,7 +38,7 @@ class SessionController {
                 authenticated, account, auth.isAdmin(account), auth.demo(),
                 authenticated && links.linked(account),
                 authenticated ? auth.csrfToken(request) : null,
-                auth.demo() ? null : "/oauth/login",
+                auth.demo() ? null : request.getContextPath() + "/oauth/login",
                 error
         );
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(info);

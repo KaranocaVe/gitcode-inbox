@@ -2,6 +2,8 @@ import {byId, element, button, boxMessage, clock, dateTime, formattedTime, gitco
 import {loadDashboard, closeDashboard} from "./dashboard.js";
 import {loadSettings} from "./settings.js";
 
+const serviceRoot = new URL("./", import.meta.url);
+const apiBase = new URL("api/v1", serviceRoot);
 const PAGE_SIZE = 20;
 const DETAIL_SIZE = 20;
 const actions = {
@@ -22,7 +24,7 @@ async function api(path, {method = "GET", body, signal} = {}) {
   const headers = {Accept: "application/json"};
   if (body !== undefined) headers["Content-Type"] = "application/json";
   if (method !== "GET" && state.session?.csrf_token) headers["X-CSRF-Token"] = state.session.csrf_token;
-  const response = await fetch("/api/v1" + path, {
+  const response = await fetch(apiBase.href + path, {
     method, headers, signal, cache: "no-store", credentials: "same-origin",
     body: body === undefined ? undefined : JSON.stringify(body),
   });
@@ -50,13 +52,16 @@ function report(error, node = byId("feedback")) {
 }
 
 function loginUrl(value) {
+  const fallback = new URL("oauth/login", serviceRoot);
   try {
-    const url = new URL(value || "/oauth/login", window.location.origin);
-    if (url.origin === window.location.origin) return url.pathname + url.search;
+    const url = new URL(value || fallback, serviceRoot);
+    if (url.origin === serviceRoot.origin && url.pathname.startsWith(serviceRoot.pathname)) {
+      return url.pathname + url.search;
+    }
   } catch {
     // Use the service's local OAuth entry point.
   }
-  return "/oauth/login";
+  return fallback.pathname;
 }
 
 function setSignedOut(message, mode = "login", url) {

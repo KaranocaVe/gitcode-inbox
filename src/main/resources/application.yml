@@ -6,6 +6,7 @@ server:
       internal-proxies: ${INBOX_TRUSTED_PROXIES:127\\.0\\.0\\.1|::1}
     max-http-form-post-size: 64KB
   servlet:
+    context-path: ${INBOX_ACCESS_PREFIX:}
     session:
       timeout: 12h
       tracking-modes: cookie
@@ -31,3 +32,7 @@ management:
   endpoint:
     health:
       show-details: never
+# The context path can contain a shared access secret.
+logging:
+  level:
+    org.springframework.boot.web.embedded.tomcat.TomcatWebServer: WARN

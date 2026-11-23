@@ -24,5 +24,5 @@ USER 10001:10001
 EXPOSE 8080
 VOLUME ["/data"]
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD ["/bin/bash", "-ec", "exec 3<>/dev/tcp/127.0.0.1/8080; printf 'GET /actuator/health HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3; read -r -t 3 protocol status rest <&3; test \"$status\" = 200"]
+  CMD ["/bin/bash", "-ec", "exec 3<>/dev/tcp/127.0.0.1/8080; printf 'GET %s/actuator/health HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' \"${INBOX_ACCESS_PREFIX:-}\" >&3; read -r -t 3 protocol status rest <&3; test \"$status\" = 200"]
 ENTRYPOINT ["java", "-jar", "/app/gitcode-inbox.jar"]

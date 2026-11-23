@@ -21,7 +21,6 @@ class LoginController {
     private static final String PENDING_LOGIN = LoginController.class.getName() + ".pending";
     private static final String LOGIN_ERROR = LoginController.class.getName() + ".error";
     private static final Duration STATE_LIFETIME = Duration.ofMinutes(10);
-    private static final URI HOME = URI.create("/");
 
     private final RequestAuth auth;
     private final GitCodeOAuth oauth;
@@ -35,7 +34,7 @@ class LoginController {
     ResponseEntity<Void> login(HttpServletRequest request) {
         auth.requireTransport(request);
         if (auth.demo()) {
-            return redirect(HOME);
+            return redirectHome(request);
         }
         HttpSession session = request.getSession();
         String state = SecretValues.generate();
@@ -55,27 +54,27 @@ class LoginController {
     ) {
         auth.requireTransport(request);
         if (auth.demo()) {
-            return redirect(HOME);
+            return redirectHome(request);
         }
         HttpSession session = request.getSession();
         if (!consumeState(session, state)) {
             session.setAttribute(LOGIN_ERROR, "The GitCode sign-in request expired or could not be verified. Try again.");
-            return redirect(HOME);
+            return redirectHome(request);
         }
         if (error != null || code == null || code.isBlank()) {
             session.setAttribute(LOGIN_ERROR, "GitCode sign-in was not completed. Try again.");
-            return redirect(HOME);
+            return redirectHome(request);
         }
         Account account;
         try {
             account = oauth.exchange(code);
         } catch (EngineException exception) {
             session.setAttribute(LOGIN_ERROR, exception.getMessage());
-            return redirect(HOME);
+            return redirectHome(request);
         }
         auth.signIn(request, account);
         session.removeAttribute(LOGIN_ERROR);
-        return redirect(HOME);
+        return redirectHome(request);
     }
 
     static String takeError(HttpServletRequest request) {
@@ -99,6 +98,10 @@ class LoginController {
             session.removeAttribute(PENDING_LOGIN);
             return Instant.now().isBefore(pending.expiresAt());
         }
+    }
+
+    private static ResponseEntity<Void> redirectHome(HttpServletRequest request) {
+        return redirect(URI.create(request.getContextPath() + "/"));
     }
 
     private static ResponseEntity<Void> redirect(URI target) {

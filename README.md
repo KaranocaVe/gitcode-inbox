@@ -18,13 +18,17 @@ INBOX_MODE=demo mvn spring-boot:run
 
 ## 生产认证
 
-先在 GitCode OAuth 应用设置中注册应用，授予文档所示的 `all_user` 用户信息权限，并登记 `https://你的域名/oauth/callback`。将应用 ID、密钥、站点前缀及 32 字节 Base64 加密密钥交给容器，参数见 [容器部署](docs/deployment.md)。 [GitCode OAuth 应用设置](https://gitcode.com/setting/oauth) · [GitCode OAuth 文档](https://docs.gitcode.com/docs/apis/oauth/)
+先在 GitCode OAuth 应用设置中注册应用，授予文档所示的 `all_user` 用户信息权限，并登记 `https://你的域名/oauth/callback`。将应用 ID、密钥、站点地址及 32 字节 Base64 加密密钥交给容器，参数见 [容器部署](docs/deployment.md)。 [GitCode OAuth 应用设置](https://gitcode.com/setting/oauth) · [GitCode OAuth 文档](https://docs.gitcode.com/docs/apis/oauth/)
 
 GitCode 公开的通知 API 以仓库为范围。账号级收件箱通过站点的 Web 通知接口访问。用户先完成 OAuth 登录，再在收件箱连接同一身份的 GitCode Web 会话。连接窗口提供取得本站会话令牌的步骤。服务按 OAuth 身份隔离数据，加密存储 Web access/refresh token，刷新后验证 GitCode Web 用户 ID。仅提供 access token 时，过期后需要重新连接。 [GitCode 仓库通知 API](https://docs.gitcode.com/docs/apis/get-api-v-5-repos-owner-repo-notifications/)
 
+## 私有访问前缀
+
+可选设置 `INBOX_ACCESS_PREFIX=/a8K2/7mQp`。两段各支持 4–32 位区分大小写的字母或数字。启用后从 `/a8K2/7mQp/` 进入，Web、REST、OAuth 和健康检查都使用同一前缀。缺少前缀或前缀错误时返回 `404`。通过前缀后，仍按 OAuth 会话或个人密钥的权限访问。
+
 ## REST API
 
-使用网页签发的个人密钥，设置 `Authorization: Bearer <密钥>`。网页会话的写入请求使用登录后返回的 `X-CSRF-Token`。管理员设置和指标要求管理员网页会话。
+启用访问前缀时，在下表的每条路径前附加 `INBOX_ACCESS_PREFIX`。使用网页签发的个人密钥，设置 `Authorization: Bearer <密钥>`。网页会话的写入请求使用登录后返回的 `X-CSRF-Token`。管理员设置和指标要求管理员网页会话。
 
 | 路径 | 方法 | 用途 |
 | --- | --- | --- |

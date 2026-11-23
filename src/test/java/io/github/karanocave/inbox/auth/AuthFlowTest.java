@@ -195,9 +195,45 @@ class AuthFlowTest {
         assertThat(auth.isAdmin(new Account("different-id", "alice"))).isFalse();
     }
 
+    @Test
+    void oauthUsesTheConfiguredPrefixForEntryCallbackAndHome() throws Exception {
+        database.destroy();
+        String prefix = "/a8K2/7mQp";
+        initialize("production", prefix);
+        mvc.perform(get(prefix + "/api/v1/session").contextPath(prefix).secure(true))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.login_url").value(prefix + "/oauth/login"));
+        MvcResult result = mvc.perform(get(prefix + "/oauth/login").contextPath(prefix).secure(true))
+                .andExpect(status().isSeeOther()).andReturn();
+        var params = UriComponentsBuilder.fromUriString(result.getResponse().getHeader(HttpHeaders.LOCATION))
+                .build().getQueryParams();
+        assertThat(URLDecoder.decode(params.getFirst("redirect_uri"), StandardCharsets.UTF_8))
+                .isEqualTo("https://inbox.example.test" + prefix + "/oauth/callback");
+        expectOAuth(ALICE);
+        mvc.perform(get(prefix + "/oauth/callback").contextPath(prefix).secure(true)
+                        .session((MockHttpSession) result.getRequest().getSession(false))
+                        .param("code", "code+test").param("state", params.getFirst("state")))
+                .andExpect(status().isSeeOther())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl(prefix + "/"));
+        gitcode.verify();
+    }
+
+    @Test
+    void accessPrefixRequiresTwoAlphanumericSegments() {
+        for (String invalid : new String[] {"/a8K2", "/a8K2/7mQp/", "/a8K2//7mQp", "/abc/1234", "/1234/ab-c"}) {
+            assertThatThrownBy(() -> new AuthSettings("demo", "", "", "", "", invalid))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("INBOX_ACCESS_PREFIX");
+        }
+    }
+
     private void initialize(String mode) {
+        initialize(mode, "");
+    }
+
+    private void initialize(String mode, String prefix) {
         var settings = new AuthSettings(mode, "https://inbox.example.test/", "client-test",
-                "secret-test", "id:alice-id, named-admin");
+                "secret-test", "id:alice-id, named-admin", prefix);
         database = new SingleConnectionDataSource("jdbc:sqlite::memory:", true);
         jdbc = new JdbcTemplate(database);
         store = new IdentityStore(jdbc, settings);

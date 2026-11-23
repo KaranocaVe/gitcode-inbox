@@ -8,11 +8,13 @@ import java.net.URI;
 import java.util.Arrays;
 import java.util.Locale;
 import java.util.Set;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 @Component
 final class AuthSettings {
     static final Account DEMO_ACCOUNT = new Account("demo", "demo");
+    private static final Pattern ACCESS_PREFIX = Pattern.compile("/[A-Za-z0-9]{4,32}/[A-Za-z0-9]{4,32}");
 
     final boolean demo;
     final String clientId;
@@ -25,7 +27,8 @@ final class AuthSettings {
             @Value("${INBOX_PUBLIC_URL:}") String publicUrl,
             @Value("${GITCODE_CLIENT_ID:}") String clientId,
             @Value("${GITCODE_CLIENT_SECRET:}") String clientSecret,
-            @Value("${INBOX_ADMIN_USERS:}") String adminUsers
+            @Value("${INBOX_ADMIN_USERS:}") String adminUsers,
+            @Value("${server.servlet.context-path:}") String accessPrefix
     ) {
         if (!mode.equals("production") && !mode.equals("demo")) {
             throw new IllegalArgumentException("INBOX_MODE must be production or demo");
@@ -35,7 +38,10 @@ final class AuthSettings {
             throw new IllegalArgumentException("GITCODE_CLIENT_ID and GITCODE_CLIENT_SECRET are required in production");
         }
 
-        callbackUrl = demo ? null : publicOrigin(publicUrl) + "/oauth/callback";
+        if (!accessPrefix.isEmpty() && !ACCESS_PREFIX.matcher(accessPrefix).matches()) {
+            throw new IllegalArgumentException("INBOX_ACCESS_PREFIX must have two alphanumeric segments of 4–32 characters");
+        }
+        callbackUrl = demo ? null : publicOrigin(publicUrl) + accessPrefix + "/oauth/callback";
         this.clientId = clientId;
         this.clientSecret = clientSecret;
         this.adminUsers = Arrays.stream(adminUsers.split(","))
