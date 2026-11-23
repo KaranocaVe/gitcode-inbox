@@ -18,20 +18,33 @@ GHCR 镜像为 `ghcr.io/karanocave/gitcode-inbox`，包含 Linux amd64 和 arm64
    GITCODE_CLIENT_SECRET=填入GitCode应用密钥
    ```
 
-   可用以下命令生成两段各四位的随机前缀。将结果保存在部署配置中。
+   可用以下命令生成两段随机前缀。每段支持 4–32 个字符。将结果保存在部署配置中。
 
    ```sh
-   python3 -c 'import secrets,string; a=string.ascii_letters+string.digits; print("/"+"/".join("".join(secrets.choice(a) for _ in range(4)) for _ in range(2)))'
+   python3 -c 'import secrets,string; a=string.ascii_letters+string.digits; print("/"+"/".join("".join(secrets.choice(a) for _ in range(16)) for _ in range(2)))'
    ```
 
 3. 将 HTTPS 反向代理指到宿主机 `127.0.0.1:8080`。代理覆盖转发头中的 `X-Forwarded-Proto` 为 `https`，并设置正确的原始 Host 和客户端地址。用 `INBOX_TRUSTED_PROXIES` 配置 Tomcat 实际看到的代理 IP 正则。Compose 的桥接网络可能让应用看到 Docker 网关地址。默认信任回环地址。代理应保留请求的完整路径，并对访问日志里的私有前缀脱敏。
-4. 在部署机器用有 GHCR 私有包读取权限的凭据登录，然后拉取和启动。
+4. 拉取镜像并启动。GHCR 软件包采用私有权限时，先在部署机器以具有软件包读取权限的凭据登录。也可在源码目录执行 `docker compose up -d --build`。
 
    ```sh
    docker compose pull
    docker compose up -d --no-build
    docker compose ps
    ```
+
+## 单账号密码登录
+
+生产默认使用 OAuth。单账号实例可在 `.env` 中设置以下两项，省略 OAuth 客户端 ID 与密钥。
+
+```dotenv
+INBOX_AUTH_MODE=password
+INBOX_PASSWORD_ACCOUNT=填入GitCode Web用户ID
+```
+
+GitCode Web 用户 ID 可从已登录账号的 Web `/uc/api/v1/user/oauth/userInfo` 响应中的 `id` 获取。设置管理员时也可使用 `INBOX_ADMIN_USERS=id:<同一个用户ID>`。用户在 HTTPS 登录表单输入 GitCode 账号和密码。服务向 GitCode 发起登录，核对返回的用户 ID，并加密保存 Web 会话令牌。账号密码仅用于当次登录。若 GitCode 要求额外验证，用户需要在 GitCode 官网完成。
+
+## 访问与更新
 
 启用前缀后，浏览器打开 `https://inbox.example.com/a8K2/7mQp/`，脚本调用 `https://inbox.example.com/a8K2/7mQp/api/v1/...`。轮换前缀时同步更新 GitCode 回调 URL、客户端请求地址与部署配置，再重建服务容器。
 

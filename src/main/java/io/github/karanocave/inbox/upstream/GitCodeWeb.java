@@ -7,20 +7,26 @@ import io.github.karanocave.inbox.engine.*;
 import io.github.karanocave.inbox.ops.TrafficGate;
 import org.springframework.stereotype.Component;
 
+import javax.crypto.Cipher;
+import javax.crypto.spec.IvParameterSpec;
+import javax.crypto.spec.SecretKeySpec;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.*;
 import java.nio.charset.StandardCharsets;
+import java.security.GeneralSecurityException;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 
 @Component
 public class GitCodeWeb {
     private static final String API = "https://web-api.gitcode.com/uc/api/v1/user";
+    private static final String PASSWORD_LOGIN = "/oauth/login";
     private static final int MAX_BODY = 8 * 1024 * 1024;
     private static final int PAGE_SIZE = 50;
     private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(8))
@@ -44,6 +50,33 @@ public class GitCodeWeb {
         String username = body.path("username").asText("");
         if (id.isBlank() || username.isBlank()) throw malformed("GitCode 身份响应无效。");
         return new Identity(id, username);
+    }
+
+    public Refreshed passwordLogin(String username, String password) {
+        var response = request("POST", PASSWORD_LOGIN, null,
+                "username=" + encode(username) + "&password=" + encode(encodePassword(password)),
+                "application/x-www-form-urlencoded");
+        String status = response.path("user_status_enum").asText("");
+        if (status.equals("MFA_CHECK") || status.equals("EMPTY_MOBILE")) {
+            throw loginChallenge();
+        }
+        String access = response.path("access_token").asText("");
+        if (!validToken(access)) throw loginRejected();
+        String refresh = response.path("refresh_token").asText("");
+        return new Refreshed(access, validToken(refresh) ? refresh : null);
+    }
+
+    // Public protocol constants from the GitCode sign-in client. HTTPS protects the request.
+    static String encodePassword(String password) {
+        try {
+            var cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
+            var key = new SecretKeySpec("SA!nUNPZ5o!OSV&B".getBytes(StandardCharsets.UTF_8), "AES");
+            var iv = new IvParameterSpec("SA!nwwwZ5o!OSV&B".getBytes(StandardCharsets.UTF_8));
+            cipher.init(Cipher.ENCRYPT_MODE, key, iv);
+            return Base64.getEncoder().encodeToString(cipher.doFinal(password.getBytes(StandardCharsets.UTF_8)));
+        } catch (GeneralSecurityException e) {
+            throw new IllegalStateException("Cannot encode GitCode password.", e);
+        }
     }
 
     public Refreshed refresh(String token, String refresh) {
@@ -100,13 +133,14 @@ public class GitCodeWeb {
     }
 
     private JsonNode request(String method, String path, String token, String body, String contentType) {
-        if (!validToken(token)) throw new UpstreamException("session_expired", "GitCode Web 会话无效。", false, 0);
+        boolean login = PASSWORD_LOGIN.equals(path);
+        if (!login && !validToken(token)) throw new UpstreamException("session_expired", "GitCode Web 会话无效。", false, 0);
         var builder = HttpRequest.newBuilder(URI.create(API + path)).timeout(Duration.ofSeconds(18))
-                .header("Authorization", "Bearer " + token)
                 .header("Accept", "application/json")
                 .header("Origin", "https://gitcode.com")
                 .header("Referer", "https://gitcode.com/notice")
                 .header("User-Agent", "gitcode-inbox/1.0");
+        if (!login) builder.header("Authorization", "Bearer " + token);
         if (body != null) builder.header("Content-Type", contentType);
         var request = builder.method(method, body == null ? HttpRequest.BodyPublishers.noBody()
                 : HttpRequest.BodyPublishers.ofString(body)).build();
@@ -120,20 +154,25 @@ public class GitCodeWeb {
                     long seconds = gate.pauseAfter429(response.headers().firstValue("Retry-After").orElse(null));
                     throw new UpstreamException("upstream_rate_limited", "GitCode 请求过于频繁。", false, seconds);
                 }
-                if (status == 401) {
+                if (status == 401 && !login) {
                     throw new UpstreamException("session_expired", "GitCode Web 会话过期，请重新连接。", false, 0);
                 }
-                if (status < 200 || status >= 300) {
+                boolean loginErrorEnvelope = login && status >= 400 && status < 500 && status != 418;
+                if ((status < 200 || status >= 300) && !loginErrorEnvelope) {
                     throw new UpstreamException("upstream_error", "GitCode 返回 HTTP " + status + "。",
                             mutation && status >= 500, 0);
                 }
                 byte[] bytes = stream.readNBytes(MAX_BODY + 1);
                 if (bytes.length > MAX_BODY) throw new IOException("response limit");
-                if (bytes.length == 0) return NullNode.instance;
+                if (bytes.length == 0 && !login) return NullNode.instance;
                 var envelope = json.readTree(bytes);
                 if (envelope == null || envelope.isMissingNode()) throw new IOException("empty response");
                 String code = envelope.path("error_code").asText("");
                 String error = envelope.path("error_code_name").asText("");
+                if (login && List.of("400015", "400017", "400018").contains(code)) throw loginChallenge();
+                if (login && (status >= 400 || !code.isEmpty() && !"0".equals(code) || !error.isEmpty())) {
+                    throw loginRejected();
+                }
                 if ("425".equals(code) || "TOKEN_INVALID_ERROR".equals(error)) {
                     throw new UpstreamException("session_expired", "GitCode Web 会话过期，请重新连接。", false, 0);
                 }
@@ -149,6 +188,15 @@ public class GitCodeWeb {
             Thread.currentThread().interrupt();
             throw new UpstreamException("interrupted", "GitCode 请求被取消。", mutation, 0);
         }
+    }
+
+    private static EngineException loginChallenge() {
+        return new EngineException(403, "gitcode_verification_required",
+                "GitCode 要求额外验证，请先在 gitcode.com 完成验证。", Map.of());
+    }
+
+    private static EngineException loginRejected() {
+        return new EngineException(401, "gitcode_login_rejected", "GitCode 未接受此次登录。", Map.of());
     }
 
     static boolean validToken(String token) {

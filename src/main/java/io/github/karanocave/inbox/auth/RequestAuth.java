@@ -51,7 +51,7 @@ public final class RequestAuth {
         if (authorization != null && authorization.length() > 7
                 && authorization.regionMatches(true, 0, "Bearer ", 0, 7)) {
             var key = store.authenticateKey(authorization.substring(7));
-            if (key != null && (demo() == key.account().id().equals(AuthSettings.DEMO_ACCOUNT.id()))) {
+            if (key != null && settings.allowsAccount(key.account().id())) {
                 return key;
             }
         }
@@ -64,11 +64,7 @@ public final class RequestAuth {
             throw new EngineException(401, "sign_in_required", "Sign in to GitCode to continue", Map.of());
         }
         if (!SAFE_METHODS.contains(request.getMethod())) {
-            HttpSession session = request.getSession(false);
-            String expected = session == null ? null : (String) session.getAttribute(CSRF);
-            if (!SecretValues.matches(expected, request.getHeader("X-CSRF-Token"))) {
-                throw new EngineException(403, "invalid_csrf_token", "Refresh the page and try again", Map.of());
-            }
+            verifyCsrf(request);
         }
         return account;
     }
@@ -89,6 +85,18 @@ public final class RequestAuth {
         return settings.demo;
     }
 
+    boolean oauthLogin() {
+        return settings.oauthLogin();
+    }
+
+    boolean passwordLogin() {
+        return settings.passwordLogin;
+    }
+
+    boolean allowsAccount(String id) {
+        return settings.allowsAccount(id);
+    }
+
     void requireTransport(HttpServletRequest request) {
         if (!demo() && !request.isSecure()) {
             throw new EngineException(403, "https_required", "HTTPS is required", Map.of());
@@ -96,16 +104,28 @@ public final class RequestAuth {
     }
 
     Account sessionAccount(HttpServletRequest request) {
-        requireTransport(request);
-        if (request.getHeader(HttpHeaders.AUTHORIZATION) != null) {
-            throw new EngineException(403, "session_required", "This endpoint requires a browser session", Map.of());
-        }
+        requireBrowser(request);
         if (demo()) {
             return AuthSettings.DEMO_ACCOUNT;
         }
         HttpSession session = request.getSession(false);
         String id = session == null ? null : (String) session.getAttribute(ID);
-        return id == null ? null : store.findAccount(id);
+        return id == null || !settings.allowsAccount(id) ? null : store.findAccount(id);
+    }
+
+    void requireBrowser(HttpServletRequest request) {
+        requireTransport(request);
+        if (request.getHeader(HttpHeaders.AUTHORIZATION) != null) {
+            throw new EngineException(403, "session_required", "This endpoint requires a browser session", Map.of());
+        }
+    }
+
+    void verifyCsrf(HttpServletRequest request) {
+        HttpSession session = request.getSession(false);
+        String expected = session == null ? null : (String) session.getAttribute(CSRF);
+        if (!SecretValues.matches(expected, request.getHeader("X-CSRF-Token"))) {
+            throw new EngineException(403, "invalid_csrf_token", "Refresh the page and try again", Map.of());
+        }
     }
 
     String csrfToken(HttpServletRequest request) {

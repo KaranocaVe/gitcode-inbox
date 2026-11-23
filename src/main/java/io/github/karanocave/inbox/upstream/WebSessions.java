@@ -1,7 +1,6 @@
 package io.github.karanocave.inbox.upstream;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.github.karanocave.inbox.auth.AccountLinkStatus;
 import io.github.karanocave.inbox.engine.*;
 import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Value;
@@ -21,7 +20,7 @@ import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.IntStream;
 
 @Service
-public class WebSessions implements AccountLinkStatus {
+public class WebSessions {
     private record Secret(String access, String refresh) {
         @Override public String toString() { return "[GitCode credentials]"; }
     }
@@ -58,7 +57,6 @@ public class WebSessions implements AccountLinkStatus {
             """);
     }
 
-    @Override
     public boolean linked(Account account) {
         return jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM linked_web_sessions WHERE account_id=? AND credentials <> '')",
                 Integer.class, account.id()) != 0;
@@ -70,28 +68,34 @@ public class WebSessions implements AccountLinkStatus {
     }
 
     public void link(Account account, String access, String refresh) {
-        if (!GitCodeWeb.validToken(access) || refresh != null && !refresh.isEmpty() && !GitCodeWeb.validToken(refresh)) {
-            throw new EngineException(400, "invalid_credentials", "请提供有效的 GitCode Web 令牌。", Map.of());
-        }
+        var credentials = new GitCodeWeb.Refreshed(access, refresh);
+        validate(credentials);
+        linkVerified(account, gitcode.identity(access), credentials);
+    }
+
+    public void linkVerified(Account account, GitCodeWeb.Identity identity, GitCodeWeb.Refreshed secret) {
+        validate(secret);
+        if (!identity.username().equalsIgnoreCase(account.username())) throw mismatch();
         var lock = lock(account);
         lock.lock();
         try {
-            var identity = gitcode.identity(access);
-            try {
-                if (!identity.username().equalsIgnoreCase(account.username())) {
-                    throw mismatch();
-                }
-                int changed = jdbc.update("""
-                    INSERT INTO linked_web_sessions VALUES (?, ?, ?, ?)
-                    ON CONFLICT(account_id) DO UPDATE SET username=excluded.username, credentials=excluded.credentials
-                    WHERE linked_web_sessions.web_id=excluded.web_id
-                    """, account.id(), account.username(), identity.id(), encrypt(account, new Secret(access, refresh)));
-                if (changed == 0) throw mismatch();
-            } catch (IllegalArgumentException e) {
-                throw new EngineException(400, "invalid_credentials", "无法读取 GitCode Web 凭据。", Map.of());
-            }
+            int changed = jdbc.update("""
+                INSERT INTO linked_web_sessions VALUES (?, ?, ?, ?)
+                ON CONFLICT(account_id) DO UPDATE SET username=excluded.username, credentials=excluded.credentials
+                WHERE linked_web_sessions.web_id=excluded.web_id
+                """, account.id(), account.username(), identity.id(),
+                    encrypt(account, new Secret(secret.access(), secret.refresh())));
+            if (changed == 0) throw mismatch();
         } finally {
             lock.unlock();
+        }
+    }
+
+    private static void validate(GitCodeWeb.Refreshed credentials) {
+        String access = credentials.access();
+        String refresh = credentials.refresh();
+        if (!GitCodeWeb.validToken(access) || refresh != null && !refresh.isEmpty() && !GitCodeWeb.validToken(refresh)) {
+            throw new EngineException(400, "invalid_credentials", "请提供有效的 GitCode Web 令牌。", Map.of());
         }
     }
 
@@ -187,6 +191,6 @@ public class WebSessions implements AccountLinkStatus {
     }
 
     private static EngineException mismatch() {
-        return new EngineException(409, "account_mismatch", "Web 会话与 OAuth 登录的 GitCode 账户不同。", Map.of());
+        return new EngineException(409, "account_mismatch", "Web 会话与当前 GitCode 账户不同。", Map.of());
     }
 }

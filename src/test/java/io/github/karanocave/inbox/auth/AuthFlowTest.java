@@ -5,34 +5,42 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import io.github.karanocave.inbox.engine.Account;
 import io.github.karanocave.inbox.engine.EngineException;
+import io.github.karanocave.inbox.http.ApiErrors;
+import io.github.karanocave.inbox.ops.TrafficGate;
+import io.github.karanocave.inbox.upstream.GitCodeWeb;
+import io.github.karanocave.inbox.upstream.WebSessions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.web.client.MockRestServiceServer;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
-import org.springframework.web.bind.annotation.ExceptionHandler;
-import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hamcrest.Matchers.containsString;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
@@ -53,6 +61,8 @@ class AuthFlowTest {
     private IdentityStore store;
     private RequestAuth auth;
     private MockRestServiceServer gitcode;
+    private GitCodeWeb gitcodeWeb;
+    private TrafficGate gate;
     private MockMvc mvc;
 
     @BeforeEach
@@ -70,7 +80,10 @@ class AuthFlowTest {
         mvc.perform(get("/api/v1/session").secure(true))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.authenticated").value(false))
+                .andExpect(jsonPath("$.password_login").value(false))
                 .andExpect(jsonPath("$.login_url").value("/oauth/login"));
+        mvc.perform(passwordLogin(new MockHttpSession(), "unused"))
+                .andExpect(status().isNotFound());
         var login = beginLogin();
         String anonymousSessionId = login.session().getId();
 
@@ -111,7 +124,7 @@ class AuthFlowTest {
                         .contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"CLI\"}")
                         .header("X-CSRF-Token", bobCsrf))
                 .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("invalid_csrf_token"));
+                .andExpect(jsonPath("$.error").value("invalid_csrf_token"));
         MvcResult issued = mvc.perform(post("/api/v1/session/keys").secure(true).session(alice)
                         .contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"CLI\"}")
                         .header("X-CSRF-Token", aliceCsrf))
@@ -177,8 +190,10 @@ class AuthFlowTest {
         mvc.perform(get("/api/v1/session").session(session))
                 .andExpect(jsonPath("$.admin").value(true))
                 .andExpect(jsonPath("$.authenticated").value(true))
+                .andExpect(jsonPath("$.password_login").value(false))
                 .andExpect(jsonPath("$.demo").value(true))
                 .andExpect(jsonPath("$.account.id").value("demo"));
+        mvc.perform(passwordLogin(session, "unused")).andExpect(status().isNotFound());
         mvc.perform(post("/api/v1/session/keys").session(session)
                         .contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"CLI\"}"))
                 .andExpect(status().isForbidden());
@@ -221,10 +236,120 @@ class AuthFlowTest {
     @Test
     void accessPrefixRequiresTwoAlphanumericSegments() {
         for (String invalid : new String[] {"/a8K2", "/a8K2/7mQp/", "/a8K2//7mQp", "/abc/1234", "/1234/ab-c"}) {
-            assertThatThrownBy(() -> new AuthSettings("demo", "", "", "", "", invalid))
+            assertThatThrownBy(() -> new AuthSettings("demo", "", "", "", "", invalid, "oauth", ""))
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessageContaining("INBOX_ACCESS_PREFIX");
         }
+    }
+
+    @Test
+    void passwordLoginRequiresTheConfiguredWebAccountAndRotatesSessionAndCsrf() throws Exception {
+        initializePasswordMode();
+        var session = new MockHttpSession();
+        String oldSessionId = session.getId();
+        var state = mvc.perform(get("/api/v1/session").secure(true).session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.authenticated").value(false))
+                .andExpect(jsonPath("$.password_login").value(true))
+                .andExpect(jsonPath("$.login_url").doesNotExist())
+                .andReturn().getResponse();
+        String csrf = json.readTree(state.getContentAsByteArray()).path("csrf_token").asText();
+        assertThat(csrf).isNotBlank();
+
+        mvc.perform(get("/oauth/login").secure(true))
+                .andExpect(status().isSeeOther())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl("/"));
+        mvc.perform(get("/oauth/callback").secure(true).param("code", "unused").param("state", csrf))
+                .andExpect(status().isSeeOther());
+
+        mvc.perform(passwordLogin(session, "wrong-csrf"))
+                .andExpect(status().isForbidden());
+        mvc.perform(passwordLogin(session, csrf).secure(false))
+                .andExpect(status().isForbidden());
+        mvc.perform(passwordLogin(session, csrf).header(HttpHeaders.AUTHORIZATION, "Bearer ignored"))
+                .andExpect(status().isForbidden());
+        verifyNoInteractions(gitcodeWeb);
+
+        when(gitcodeWeb.passwordLogin("alice", "fixture-password"))
+                .thenReturn(new GitCodeWeb.Refreshed("fixture-access", "fixture-refresh"));
+        when(gitcodeWeb.identity("fixture-access")).thenReturn(new GitCodeWeb.Identity(BOB.id(), ALICE.username()));
+        mvc.perform(passwordLogin(session, csrf))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error").value("gitcode_login_rejected"));
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM linked_web_sessions", Integer.class)).isZero();
+        assertThat(store.findAccount(BOB.id())).isNull();
+        assertThat(session.getId()).isEqualTo(oldSessionId);
+
+        when(gitcodeWeb.identity("fixture-access")).thenReturn(new GitCodeWeb.Identity(ALICE.id(), "alice-renamed"));
+        mvc.perform(passwordLogin(session, csrf)).andExpect(status().isNoContent());
+        assertThat(session.getId()).isNotEqualTo(oldSessionId);
+        var account = new Account(ALICE.id(), "alice-renamed");
+        assertThat(store.findAccount(ALICE.id())).isEqualTo(account);
+        assertThat(jdbc.queryForObject("SELECT credentials FROM linked_web_sessions", String.class))
+                .isNotBlank().doesNotContain("fixture-access", "fixture-refresh", "fixture-password");
+        mvc.perform(get("/api/v1/session").secure(true).session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.authenticated").value(true))
+                .andExpect(jsonPath("$.linked").value(true))
+                .andExpect(jsonPath("$.admin").value(true))
+                .andExpect(jsonPath("$.account.username").value(account.username()));
+        assertThat(csrfToken(session, true)).isNotEqualTo(csrf);
+        gitcode.verify();
+    }
+
+    @Test
+    void passwordLoginHonorsTheExistingLoginRateLimit() throws Exception {
+        initializePasswordMode();
+        var session = new MockHttpSession();
+        String csrf = csrfToken(session, true);
+        doThrow(new EngineException(429, "rate_limited", "limited", Map.of("retry_after_seconds", 18)))
+                .when(gate).login("127.0.0.1");
+        mvc.perform(passwordLogin(session, csrf))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.error").value("rate_limited"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header()
+                        .string(HttpHeaders.RETRY_AFTER, "18"));
+        verifyNoInteractions(gitcodeWeb);
+    }
+
+    @Test
+    void passwordLoginReturnsGitCodeVerificationChallengeWithoutCreatingASession() throws Exception {
+        initializePasswordMode();
+        var session = new MockHttpSession();
+        String csrf = csrfToken(session, true);
+        when(gitcodeWeb.passwordLogin("alice", "fixture-password")).thenThrow(
+                new EngineException(403, "gitcode_verification_required", "需要额外验证。", Map.of()));
+        mvc.perform(passwordLogin(session, csrf))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value("gitcode_verification_required"));
+        mvc.perform(get("/api/v1/session").secure(true).session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.authenticated").value(false))
+                .andExpect(jsonPath("$.csrf_token").value(csrf));
+        assertThat(store.findAccount(ALICE.id())).isNull();
+    }
+
+    @Test
+    void passwordModeRejectsAnExistingApiKeyForAnotherAccount() {
+        initializePasswordMode();
+        store.saveAccount(BOB);
+        String token = store.createKey(BOB, "Old OAuth key", "inbox").token();
+        var request = new MockHttpServletRequest("GET", "/api/v1/items");
+        request.setSecure(true);
+        request.addHeader(HttpHeaders.AUTHORIZATION, "Bearer " + token);
+        assertThatThrownBy(() -> auth.requireInbox(request)).isInstanceOfSatisfying(EngineException.class,
+                exception -> assertThat(exception.code()).isEqualTo("invalid_api_key"));
+    }
+
+    @Test
+    void passwordModeRequiresAnAccountAndDoesNotRequireOAuthCredentials() {
+        assertThatThrownBy(() -> new AuthSettings("production", "https://inbox.example.test", "", "",
+                "", "", "password", ""))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("INBOX_PASSWORD_ACCOUNT");
+        var settings = new AuthSettings("production", "https://inbox.example.test", "", "",
+                "", "", "password", ALICE.id());
+        assertThat(settings.passwordLogin).isTrue();
+        assertThat(settings.oauthLogin()).isFalse();
     }
 
     @Test
@@ -250,19 +375,45 @@ class AuthFlowTest {
 
     private void initialize(String mode, String prefix) {
         var settings = new AuthSettings(mode, "https://inbox.example.test/", "client-test",
-                "secret-test", "id:alice-id, named-admin", prefix);
+                "secret-test", "id:alice-id, named-admin", prefix, "oauth", "");
+        initialize(settings);
+    }
+
+    private void initializePasswordMode() {
+        database.destroy();
+        var settings = new AuthSettings("production", "https://inbox.example.test/", "", "",
+                "id:alice-id", "", "password", ALICE.id());
+        initialize(settings);
+    }
+
+    private void initialize(AuthSettings settings) {
         database = new SingleConnectionDataSource("jdbc:sqlite::memory:", true);
         jdbc = new JdbcTemplate(database);
         store = new IdentityStore(jdbc, settings);
         store.initialize();
         auth = new RequestAuth(settings, store);
+        gitcodeWeb = mock(GitCodeWeb.class);
+        gate = mock(TrafficGate.class);
+        var links = new WebSessions(jdbc, json, gitcodeWeb, Base64.getEncoder().encodeToString(new byte[32]),
+                settings.demo ? "demo" : "production");
+        ReflectionTestUtils.invokeMethod(links, "init");
+        if (settings.oauthLogin()) {
+            links.linkVerified(ALICE, new GitCodeWeb.Identity(ALICE.id(), ALICE.username()),
+                    new GitCodeWeb.Refreshed("previous-link", null));
+        }
         RestClient.Builder builder = RestClient.builder();
         gitcode = MockRestServiceServer.bindTo(builder).build();
         mvc = MockMvcBuilders.standaloneSetup(new LoginController(auth, new GitCodeOAuth(settings, builder.build())),
-                        new SessionController(auth, store, account -> account.id().equals(ALICE.id())))
-                .setControllerAdvice(new Errors())
+                        new SessionController(auth, store, gitcodeWeb, links, gate))
+                .setControllerAdvice(new ApiErrors())
                 .setMessageConverters(new MappingJackson2HttpMessageConverter(json))
                 .build();
+    }
+
+    private MockHttpServletRequestBuilder passwordLogin(MockHttpSession session, String csrf) {
+        return post("/api/v1/session/login").secure(true).session(session).header("X-CSRF-Token", csrf)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"username\":\"alice\",\"password\":\"fixture-password\"}");
     }
 
     private MockHttpSession signIn(Account account) throws Exception {
@@ -318,12 +469,4 @@ class AuthFlowTest {
     }
 
     private record Login(MockHttpSession session, String state) {}
-
-    @RestControllerAdvice
-    static class Errors {
-        @ExceptionHandler(EngineException.class)
-        ResponseEntity<Map<String, String>> handle(EngineException exception) {
-            return ResponseEntity.status(exception.status()).body(Map.of("code", exception.code()));
-        }
-    }
 }

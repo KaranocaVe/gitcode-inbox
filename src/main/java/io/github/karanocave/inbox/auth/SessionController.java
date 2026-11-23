@@ -1,10 +1,15 @@
 package io.github.karanocave.inbox.auth;
 
 import io.github.karanocave.inbox.engine.Account;
+import io.github.karanocave.inbox.engine.EngineException;
+import io.github.karanocave.inbox.ops.TrafficGate;
+import io.github.karanocave.inbox.upstream.GitCodeWeb;
+import io.github.karanocave.inbox.upstream.WebSessions;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -15,18 +20,24 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/v1/session")
 class SessionController {
     private final RequestAuth auth;
     private final IdentityStore store;
-    private final AccountLinkStatus links;
+    private final GitCodeWeb gitcode;
+    private final WebSessions webSessions;
+    private final TrafficGate gate;
 
-    SessionController(RequestAuth auth, IdentityStore store, AccountLinkStatus links) {
+    SessionController(RequestAuth auth, IdentityStore store, GitCodeWeb gitcode, WebSessions webSessions,
+                      TrafficGate gate) {
         this.auth = auth;
         this.store = store;
-        this.links = links;
+        this.gitcode = gitcode;
+        this.webSessions = webSessions;
+        this.gate = gate;
     }
 
     @GetMapping
@@ -35,13 +46,36 @@ class SessionController {
         String error = LoginController.takeError(request);
         boolean authenticated = account != null;
         var info = new SessionInfo(
-                authenticated, account, auth.isAdmin(account), auth.demo(),
-                authenticated && links.linked(account),
-                authenticated ? auth.csrfToken(request) : null,
-                auth.demo() ? null : request.getContextPath() + "/oauth/login",
+                authenticated, account, auth.isAdmin(account), auth.demo(), auth.passwordLogin(),
+                authenticated && webSessions.linked(account),
+                authenticated || auth.passwordLogin() ? auth.csrfToken(request) : null,
+                auth.oauthLogin() ? request.getContextPath() + "/oauth/login" : null,
                 error
         );
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(info);
+    }
+
+    @PostMapping(value = "/login", consumes = MediaType.APPLICATION_JSON_VALUE)
+    ResponseEntity<Void> login(HttpServletRequest request, @RequestBody LoginRequest payload) {
+        auth.requireBrowser(request);
+        if (!auth.passwordLogin()) {
+            throw new EngineException(404, "password_login_disabled", "GitCode 密码登录未启用。", Map.of());
+        }
+        gate.login(request.getRemoteAddr());
+        auth.verifyCsrf(request);
+        if (payload.username() == null || payload.username().isBlank()
+                || payload.password() == null || payload.password().isEmpty()) {
+            throw new EngineException(400, "invalid_credentials", "请输入 GitCode 账号和密码。", Map.of());
+        }
+        var credentials = gitcode.passwordLogin(payload.username().strip(), payload.password());
+        var identity = gitcode.identity(credentials.access());
+        if (!auth.allowsAccount(identity.id())) {
+            throw new EngineException(401, "gitcode_login_rejected", "GitCode 未接受此次登录。", Map.of());
+        }
+        var account = new Account(identity.id(), identity.username());
+        webSessions.linkVerified(account, identity, credentials);
+        auth.signIn(request, account);
+        return ResponseEntity.noContent().cacheControl(CacheControl.noStore()).build();
     }
 
     @PostMapping("/logout")
@@ -74,10 +108,17 @@ class SessionController {
         return ResponseEntity.noContent().cacheControl(CacheControl.noStore()).build();
     }
 
-    record SessionInfo(boolean authenticated, Account account, boolean admin, boolean demo, boolean linked,
+    record SessionInfo(boolean authenticated, Account account, boolean admin, boolean demo, boolean passwordLogin, boolean linked,
                        String csrfToken, String loginUrl, String error) {}
 
     record KeyList(List<IdentityStore.KeyInfo> items) {}
 
     record NewKeyRequest(String name, String scope) {}
+
+    record LoginRequest(String username, String password) {
+        @Override
+        public String toString() {
+            return "[GitCode login credentials]";
+        }
+    }
 }

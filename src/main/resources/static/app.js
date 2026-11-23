@@ -22,18 +22,20 @@ const state = {
 
 async function api(path, {method = "GET", body, signal} = {}) {
   const headers = {Accept: "application/json"};
+  const session = state.session;
   if (body !== undefined) headers["Content-Type"] = "application/json";
-  if (method !== "GET" && state.session?.csrf_token) headers["X-CSRF-Token"] = state.session.csrf_token;
+  if (method !== "GET" && session?.csrf_token) headers["X-CSRF-Token"] = session.csrf_token;
   const response = await fetch(apiBase.href + path, {
     method, headers, signal, cache: "no-store", credentials: "same-origin",
+    redirect: path === "/session/login" ? "error" : "follow",
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const data = response.status === 204 ? {} : await response.json().catch(() => null);
   if (response.ok && data != null) return data;
   const header = response.headers.get("Retry-After");
   const retryAfter = header && /^\d+$/.test(header) ? Number(header) : Math.max(0, (Date.parse(header) - Date.now()) / 1000);
-  if (response.status === 401 && state.session?.authenticated && path !== "/session") {
-    setSignedOut("会话已过期，请重新登录。");
+  if (response.status === 401 && session?.authenticated && state.session === session && path !== "/session") {
+    discoverSession("会话已过期，请重新登录。", true);
   }
   if (response.status === 429 && state.session?.authenticated) {
     state.rateUntil = Math.max(state.rateUntil, Date.now() + (retryAfter || 15) * 1000);
@@ -64,10 +66,10 @@ function loginUrl(value) {
   return fallback.pathname;
 }
 
-function setSignedOut(message, mode = "login", url) {
+function setSignedOut(message, mode, session = null) {
   state.listController?.abort();
   state.detailController?.abort();
-  state.session = null;
+  state.session = session;
   state.status = null;
   state.route = null;
   state.items = [];
@@ -83,13 +85,18 @@ function setSignedOut(message, mode = "login", url) {
   byId("rows").replaceChildren();
   byId("detail-content").replaceChildren();
   byId("read-confirm").close("cancel");
+  document.title = "收件箱 · GitCode";
   byId("startup").hidden = false;
   byId("startup-copy").textContent = message;
   byId("workspace").hidden = true;
   byId("account-area").hidden = true;
   byId("navigation").hidden = true;
-  byId("login").href = loginUrl(url);
-  byId("login").hidden = mode !== "login";
+  byId("login").href = loginUrl(session?.login_url);
+  byId("login").hidden = mode !== "oauth";
+  byId("password-login").hidden = mode !== "password";
+  byId("login-fields").disabled = mode !== "password";
+  byId("login-password").value = "";
+  notice(byId("password-feedback"), "");
   byId("retry").hidden = mode !== "retry";
 }
 
@@ -97,13 +104,17 @@ function linked() {
   return state.session?.demo || state.session?.linked;
 }
 
-async function discoverSession() {
+async function discoverSession(message = "", focus = false) {
   byId("retry").disabled = true;
+  setSignedOut(message || "正在连接服务…", "loading");
   try {
     const session = await api("/session");
     if (!session.authenticated) {
       const feedback = session.error || (new URL(location.href).searchParams.has("error") ? "登录未完成，请重新登录。" : "");
-      setSignedOut(feedback || "登录后查看 GitCode 的未读通知。", "login", session.login_url);
+      const mode = session.password_login ? "password" : session.login_url ? "oauth" : "retry";
+      const copy = mode === "retry" ? "暂时无法登录收件箱。" : "登录后查看 GitCode 的未读通知。";
+      setSignedOut(feedback || message || copy, mode, session);
+      if (focus) byId({password: "login-username", oauth: "login", retry: "retry"}[mode]).focus();
       return;
     }
     state.session = session;
@@ -115,7 +126,7 @@ async function discoverSession() {
     byId("account-name").textContent = username ? "@" + username : "";
     byId("logout").hidden = !!session.demo;
     byId("navigation").querySelector('[href="#dashboard"]').hidden = !session.admin;
-    renderRoute();
+    renderRoute(focus);
   } catch (error) {
     setSignedOut(errorText(error), "retry");
   } finally {
@@ -138,7 +149,7 @@ function setPageHeading() {
 }
 
 function renderRoute(focus = false) {
-  if (!state.session) return;
+  if (!state.session?.authenticated) return;
   const requested = location.hash.slice(1);
   const view = requested === "settings" || (requested === "dashboard" && state.session.admin) ? requested : "inbox";
   if (view === state.route) return;
@@ -599,12 +610,45 @@ document.querySelector(".skip").addEventListener("click", (event) => {
   event.preventDefault();
   byId("main").focus();
 });
-byId("retry").addEventListener("click", discoverSession);
+byId("retry").addEventListener("click", () => discoverSession("", true));
+byId("password-login").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!state.session?.password_login || byId("login-fields").disabled) return;
+  const username = byId("login-username");
+  username.value = username.value.trim();
+  if (!username.reportValidity()) return;
+  const password = byId("login-password");
+  const body = {username: username.value, password: password.value};
+  password.value = "";
+  const fields = byId("login-fields");
+  const submit = byId("password-submit");
+  const feedback = byId("password-feedback");
+  fields.disabled = true;
+  submit.textContent = "正在登录…";
+  notice(feedback, "");
+  try {
+    await api("/session/login", {method: "POST", body});
+    username.value = "";
+    await discoverSession("", true);
+  } catch (error) {
+    if (error.data?.error === "invalid_csrf_token") {
+      await discoverSession("登录会话已更新，请重新输入密码。", true);
+    } else {
+      notice(feedback, errorText(error), "error");
+    }
+  } finally {
+    submit.textContent = "登录";
+    if (!byId("password-login").hidden) {
+      fields.disabled = false;
+      password.focus();
+    }
+  }
+});
 byId("logout").addEventListener("click", async () => {
   byId("logout").disabled = true;
   try {
     await api("/session/logout", {method: "POST"});
-    setSignedOut("已退出 GitCode 收件箱。");
+    await discoverSession("已退出 GitCode 收件箱。", true);
   } catch (error) {
     report(error);
   } finally {

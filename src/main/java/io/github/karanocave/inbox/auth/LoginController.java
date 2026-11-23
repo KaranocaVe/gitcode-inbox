@@ -33,7 +33,7 @@ class LoginController {
     @GetMapping("/oauth/login")
     ResponseEntity<Void> login(HttpServletRequest request) {
         auth.requireTransport(request);
-        if (auth.demo()) {
+        if (!auth.oauthLogin()) {
             return redirectHome(request);
         }
         HttpSession session = request.getSession();
@@ -53,7 +53,7 @@ class LoginController {
             @RequestParam(required = false) String error
     ) {
         auth.requireTransport(request);
-        if (auth.demo()) {
+        if (!auth.oauthLogin()) {
             return redirectHome(request);
         }
         HttpSession session = request.getSession();

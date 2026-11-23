@@ -102,6 +102,9 @@ time, .count, .list-count, .pager, .metric-value, .setting-input-area { font-var
 .page-heading p, .gate p { margin-top: 11px; color: var(--muted); font-size: 17px; line-height: 1.55; }
 .gate { margin: clamp(25px, 10vw, 110px) 0; max-width: 38rem; }
 .gate .button { margin-top: 24px; }
+#password-login { max-width: 26rem; margin-top: 24px; }
+#password-login .button, #password-feedback { margin-top: 12px; }
+#password-feedback { color: var(--error); font-size: 14px; }
 #sync-controls, .sync-actions { display: flex; align-items: center; gap: 11px; }
 .sync-status { color: var(--muted); font-size: 13px; text-align: right; }
 .sync-status::before { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin: 0 7px 2px 0; background: currentColor; }
