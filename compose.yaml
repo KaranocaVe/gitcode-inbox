@@ -24,7 +24,8 @@ services:
       - inbox-data:/data
     read_only: true
     tmpfs:
-      - /tmp:size=64m,nosuid,nodev
+      # SQLite JDBC loads its native library from the temporary directory.
+      - /tmp:rw,exec,size=64m,nosuid,nodev
     security_opt:
       - no-new-privileges:true
     cap_drop:
