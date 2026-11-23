@@ -6,6 +6,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.Map;
+import java.util.function.UnaryOperator;
 
 @Service
 public class RuntimeSettings {
@@ -54,6 +55,10 @@ public class RuntimeSettings {
 
     public Values get() {
         return current;
+    }
+
+    public synchronized Values patch(UnaryOperator<Values> changes) {
+        return replace(changes.apply(current));
     }
 
     public synchronized Values replace(Values values) {

@@ -20,6 +20,7 @@ final class AuthSettings {
     final String clientId;
     final String clientSecret;
     final String callbackUrl;
+    final String publicOrigin;
     private final Set<String> adminUsers;
 
     AuthSettings(
@@ -41,7 +42,8 @@ final class AuthSettings {
         if (!accessPrefix.isEmpty() && !ACCESS_PREFIX.matcher(accessPrefix).matches()) {
             throw new IllegalArgumentException("INBOX_ACCESS_PREFIX must have two alphanumeric segments of 4–32 characters");
         }
-        callbackUrl = demo ? null : publicOrigin(publicUrl) + accessPrefix + "/oauth/callback";
+        publicOrigin = demo ? null : publicOrigin(publicUrl);
+        callbackUrl = demo ? null : publicOrigin + accessPrefix + "/oauth/callback";
         this.clientId = clientId;
         this.clientSecret = clientSecret;
         this.adminUsers = Arrays.stream(adminUsers.split(","))

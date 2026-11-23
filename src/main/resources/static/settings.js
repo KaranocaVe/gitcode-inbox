@@ -202,14 +202,22 @@ function newKeyCard(token) {
   return box;
 }
 
-function apiKeys(api) {
+function apiKeys(api, isAdmin) {
   const section = sheet("API 令牌");
   const form = element("form", null, "quick-form");
   const name = labelAndInput("令牌名称", "name", "text", {required: true, maxLength: 100});
   name.input.placeholder = "例如 CI 同步";
   const submit = element("button", "创建令牌", "button primary");
   submit.type = "submit";
-  form.append(name.wrapper, submit);
+  form.append(name.wrapper);
+  const adminScope = element("input");
+  adminScope.type = "checkbox";
+  if (isAdmin) {
+    const scopeLabel = element("label", null, "select-page");
+    scopeLabel.append(adminScope, element("span", "允许 MCP 管理设置和查看指标"));
+    form.append(scopeLabel);
+  }
+  form.append(submit);
   const keyOutput = element("div");
   const list = element("div", null, "key-list");
   const status = statusNode();
@@ -232,6 +240,7 @@ function apiKeys(api) {
         const createdAt = formattedTime(item.created_at);
         text.append(element("strong", item.name));
         if (createdAt) text.append(element("p", "创建于 " + createdAt, "settings-note"));
+        if (item.scope === "mcp_admin") text.append(element("p", "MCP 管理权限", "settings-note"));
         const revoke = button("撤销", async () => {
           if (!window.confirm(`撤销「${item.name}」的 API 令牌？`)) return;
           revoke.disabled = true;
@@ -269,7 +278,7 @@ function apiKeys(api) {
     submit.disabled = true;
     notice(status, "");
     try {
-      const item = await api("/session/keys", {method: "POST", body: {name: value}});
+      const item = await api("/session/keys", {method: "POST", body: {name: value, scope: adminScope.checked ? "mcp_admin" : "inbox"}});
       form.reset();
       if (section.isConnected) keyOutput.replaceChildren(newKeyCard(item.token));
       await load();
@@ -293,7 +302,7 @@ export function loadSettings(host, api, session, refresh) {
   }
   if (!session.demo) {
     host.append(webSession(api, session, refresh));
-    const keys = apiKeys(api);
+    const keys = apiKeys(api, session.admin);
     host.append(keys.section);
     keys.load();
   }

@@ -36,9 +36,11 @@ public class ProtocolFilter extends OncePerRequestFilter {
         response.setHeader("Referrer-Policy", "no-referrer");
         response.setHeader("X-Frame-Options", "DENY");
         if (request.isSecure()) response.setHeader("Strict-Transport-Security", "max-age=31536000");
-        if (path.startsWith("/api/") || path.startsWith("/oauth/")) response.setHeader("Cache-Control", "no-store");
-        if (path.startsWith("/api/") && (request.getContentLengthLong() > MAX_BODY
-                || request.getHeader("Transfer-Encoding") != null)) {
+        boolean mcp = path.equals("/mcp");
+        if (mcp || path.startsWith("/api/") || path.startsWith("/oauth/")) response.setHeader("Cache-Control", "no-store");
+        boolean api = path.startsWith("/api/");
+        if (((mcp || api) && request.getContentLengthLong() > MAX_BODY)
+                || (api && request.getHeader("Transfer-Encoding") != null)) {
             error(response, 413, "request_too_large", "请求体须小于 64 KiB。");
             return;
         }

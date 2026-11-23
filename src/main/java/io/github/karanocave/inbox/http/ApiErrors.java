@@ -42,6 +42,9 @@ public class ApiErrors {
         response.put("message", message);
         response.putAll(extra);
         var builder = ResponseEntity.status(status);
+        if ("invalid_api_key".equals(code)) {
+            builder.header(HttpHeaders.WWW_AUTHENTICATE, "Bearer realm=\"gitcode-inbox\"");
+        }
         if (extra.get("retry_after_seconds") instanceof Number seconds) {
             builder.header(HttpHeaders.RETRY_AFTER, String.valueOf(seconds.longValue()));
         }

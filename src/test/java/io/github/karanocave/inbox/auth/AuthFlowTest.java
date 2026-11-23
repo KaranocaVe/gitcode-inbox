@@ -227,6 +227,23 @@ class AuthFlowTest {
         }
     }
 
+    @Test
+    void apiKeyMigrationPreservesExistingCredentialsAndScopeRequiresAdmin() throws Exception {
+        jdbc.execute("ALTER TABLE inbox_auth_api_keys DROP COLUMN scope");
+        store.saveAccount(ALICE);
+        String token = "inbox_" + SecretValues.generate();
+        jdbc.update("INSERT INTO inbox_auth_api_keys VALUES (?, ?, ?, ?, ?)", "original-key",
+                ALICE.id(), "Existing key", SecretValues.digest(token), "2026-11-01T00:00:00Z");
+        store.initialize();
+        assertThat(store.authenticateKey(token).account()).isEqualTo(ALICE);
+        assertThat(store.authenticateKey(token).scope()).isEqualTo("inbox");
+        var bob = signIn(BOB);
+        mvc.perform(post("/api/v1/session/keys").secure(true).session(bob)
+                        .header("X-CSRF-Token", csrfToken(bob, true)).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"admin key\",\"scope\":\"mcp_admin\"}"))
+                .andExpect(status().isForbidden());
+    }
+
     private void initialize(String mode) {
         initialize(mode, "");
     }

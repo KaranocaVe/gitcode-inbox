@@ -65,6 +65,23 @@ jobs:
           done
           docker logs gitcode-inbox-ci
           exit 1
+      - name: Exercise MCP
+        run: |
+          base="http://127.0.0.1:18080${INBOX_ACCESS_PREFIX}"
+          cookies="$(mktemp)"
+          trap 'rm -f "$cookies"' EXIT
+          csrf="$(curl -fsS -c "$cookies" "$base/api/v1/session" | jq -er .csrf_token)"
+          token="$(curl -fsS -b "$cookies" -H "X-CSRF-Token: $csrf" -H 'Content-Type: application/json' \
+            -d '{"name":"CI MCP"}' "$base/api/v1/session/keys" | jq -er .token)"
+          printf '::add-mask::%s\n' "$token"
+          curl -fsS -H "Authorization: Bearer $token" -H 'Content-Type: application/json' \
+            -H 'Accept: application/json, text/event-stream' \
+            -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"CI","version":"1"}}}' \
+            "$base/mcp" | jq -e '.result.capabilities | has("tools")'
+          curl -fsS -H "Authorization: Bearer $token" -H 'Content-Type: application/json' \
+            -H 'Accept: application/json, text/event-stream' -H 'MCP-Protocol-Version: 2025-11-25' \
+            -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"inbox_status","arguments":{}}}' \
+            "$base/mcp" | jq -e '.result.structuredContent.unread_total > 0'
       - name: Stop container
         if: always()
         run: docker rm --force gitcode-inbox-ci

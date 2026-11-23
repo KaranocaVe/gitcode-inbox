@@ -26,6 +26,10 @@ GitCode 公开的通知 API 以仓库为范围。账号级收件箱通过站点�
 
 可选设置 `INBOX_ACCESS_PREFIX=/a8K2/7mQp`。两段各支持 4–32 位区分大小写的字母或数字。启用后从 `/a8K2/7mQp/` 进入，Web、REST、OAuth 和健康检查都使用同一前缀。缺少前缀或前缀错误时返回 `404`。通过前缀后，仍按 OAuth 会话或个人密钥的权限访问。
 
+## MCP
+
+同一个容器提供 MCP Streamable HTTP 入口 `/mcp`。配置了访问前缀时，连接地址为 `https://你的域名/<第一段>/<第二段>/mcp`。在 Web 设置中创建个人 API 令牌，并让客户端通过 Bearer 请求头发送。MCP 提供收件箱状态、分组与消息列表、同步和批量已读。管理员可签发包含运行指标和在线设置权限的 MCP 令牌。参见 [MCP 接入与工具说明](docs/mcp.md)。
+
 ## REST API
 
 启用访问前缀时，在下表的每条路径前附加 `INBOX_ACCESS_PREFIX`。使用网页签发的个人密钥，设置 `Authorization: Bearer <密钥>`。网页会话的写入请求使用登录后返回的 `X-CSRF-Token`。管理员设置和指标要求管理员网页会话。

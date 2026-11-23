@@ -27,14 +27,32 @@ public final class RequestAuth {
 
     public Account requireInbox(HttpServletRequest request) {
         requireTransport(request);
-        String authorization = request.getHeader(HttpHeaders.AUTHORIZATION);
-        if (authorization == null) {
+        if (request.getHeader(HttpHeaders.AUTHORIZATION) == null) {
             return requireSession(request);
         }
-        if (authorization.length() > 7 && authorization.regionMatches(true, 0, "Bearer ", 0, 7)) {
-            Account account = store.authenticateKey(authorization.substring(7));
-            if (account != null && (demo() == account.id().equals(AuthSettings.DEMO_ACCOUNT.id()))) {
-                return account;
+        return requireKey(request).account();
+    }
+
+    public record McpIdentity(Account account, boolean admin) {}
+
+    public McpIdentity requireMcp(HttpServletRequest request) {
+        requireTransport(request);
+        String origin = request.getHeader(HttpHeaders.ORIGIN);
+        if (origin != null && !origin.equals(settings.publicOrigin)) {
+            throw new EngineException(403, "invalid_origin", "Origin is not allowed", Map.of());
+        }
+        var key = requireKey(request);
+        return new McpIdentity(key.account(), IdentityStore.MCP_ADMIN_SCOPE.equals(key.scope())
+                && isAdmin(key.account()));
+    }
+
+    private IdentityStore.AuthenticatedKey requireKey(HttpServletRequest request) {
+        String authorization = request.getHeader(HttpHeaders.AUTHORIZATION);
+        if (authorization != null && authorization.length() > 7
+                && authorization.regionMatches(true, 0, "Bearer ", 0, 7)) {
+            var key = store.authenticateKey(authorization.substring(7));
+            if (key != null && (demo() == key.account().id().equals(AuthSettings.DEMO_ACCOUNT.id()))) {
+                return key;
             }
         }
         throw new EngineException(401, "invalid_api_key", "A valid inbox API key is required", Map.of());

@@ -64,7 +64,7 @@ class SessionController {
     ResponseEntity<IdentityStore.NewKey> createKey(HttpServletRequest request, @RequestBody NewKeyRequest payload) {
         Account account = auth.requireSession(request);
         return ResponseEntity.status(HttpStatus.CREATED).cacheControl(CacheControl.noStore())
-                .body(store.createKey(account, payload.name()));
+                .body(store.createKey(account, payload.name(), payload.scope()));
     }
 
     @DeleteMapping("/keys/{id}")
@@ -79,5 +79,5 @@ class SessionController {
 
     record KeyList(List<IdentityStore.KeyInfo> items) {}
 
-    record NewKeyRequest(String name) {}
+    record NewKeyRequest(String name, String scope) {}
 }
