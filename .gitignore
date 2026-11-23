@@ -1,0 +1,20 @@
+# Maven
+/target/
+!.mvn/wrapper/maven-wrapper.jar
+
+# Runtime state
+/data/
+*.sqlite
+*.sqlite3
+*.db
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# IDE / OS
+.idea/
+.vscode/
+*.iml
+.DS_Store

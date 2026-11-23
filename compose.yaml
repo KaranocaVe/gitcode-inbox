@@ -1,0 +1,34 @@
+services:
+  gitcode-inbox:
+    image: ${INBOX_IMAGE:-ghcr.io/karanocave/gitcode-inbox:latest}
+    build:
+      context: .
+      args:
+        APP_VERSION: ${INBOX_VERSION:-dev}
+    restart: unless-stopped
+    init: true
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      INBOX_MODE: ${INBOX_MODE:-production}
+      INBOX_DB: ${INBOX_DB:-/data/inbox.sqlite}
+      INBOX_PUBLIC_URL: ${INBOX_PUBLIC_URL:-}
+      GITCODE_CLIENT_ID: ${GITCODE_CLIENT_ID:-}
+      GITCODE_CLIENT_SECRET: ${GITCODE_CLIENT_SECRET:-}
+      INBOX_TOKEN_KEY: ${INBOX_TOKEN_KEY:-}
+      INBOX_ADMIN_USERS: ${INBOX_ADMIN_USERS:-}
+    ports:
+      - "${INBOX_BIND:-127.0.0.1}:${INBOX_PORT:-8080}:8080"
+    volumes:
+      - inbox-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,nosuid,nodev
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+volumes:
+  inbox-data:

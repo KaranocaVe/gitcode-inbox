@@ -1,0 +1,33 @@
+server:
+  port: ${PORT:8080}
+  forward-headers-strategy: native
+  tomcat:
+    remoteip:
+      internal-proxies: ${INBOX_TRUSTED_PROXIES:127\\.0\\.0\\.1|::1}
+    max-http-form-post-size: 64KB
+  servlet:
+    session:
+      timeout: 12h
+      tracking-modes: cookie
+      cookie:
+        name: INBOX_SID
+        http-only: true
+        same-site: lax
+  error:
+    include-message: never
+    include-stacktrace: never
+spring:
+  application:
+    name: gitcode-inbox
+  jackson:
+    property-naming-strategy: SNAKE_CASE
+    serialization:
+      write-dates-as-timestamps: false
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never

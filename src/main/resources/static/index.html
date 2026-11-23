@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta name="color-scheme" content="light">
+  <title>收件箱 · GitCode</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" type="module"></script>
+</head>
+<body>
+  <a class="skip" href="#main">跳到内容</a>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a href="#inbox" class="brand" aria-label="GitCode 收件箱">
+        <span class="brand-mark" aria-hidden="true"><span></span></span>
+        <span>GitCode</span>
+      </a>
+      <nav id="navigation" aria-label="主导航" hidden>
+        <a href="#inbox" aria-current="page">收件箱</a>
+        <a href="#dashboard">运行概览</a>
+        <a href="#settings">设置</a>
+      </nav>
+      <div class="account" id="account-area" hidden>
+        <span class="account-name" id="account-name"></span>
+        <button type="button" class="plain-button" id="logout">退出</button>
+      </div>
+    </div>
+  </header>
+  <main class="layout" id="main" tabindex="-1">
+    <noscript><p class="notice">请启用 JavaScript 以使用 GitCode 收件箱。</p></noscript>
+    <section id="startup" class="gate" aria-labelledby="startup-title" aria-live="polite">
+      <h1 id="startup-title">GitCode 收件箱</h1>
+      <p id="startup-copy">正在连接服务…</p>
+      <a class="button primary" id="login" href="/oauth/login" hidden>使用 GitCode 登录 <span aria-hidden="true">↗</span></a>
+      <button class="button" id="retry" type="button" hidden>重新连接</button>
+    </section>
+
+    <div id="workspace" hidden>
+      <header class="page-heading">
+        <div>
+          <h1 id="page-title" tabindex="-1">收件箱</h1>
+          <p id="page-summary"></p>
+        </div>
+        <div id="sync-controls">
+          <span id="sync-status" class="sync-status" role="status"></span>
+          <div class="sync-actions">
+            <button class="button" type="button" id="sync"><span aria-hidden="true">↻</span> 立即同步</button>
+            <details id="sync-more" class="action-menu">
+              <summary aria-label="更多同步选项" title="更多同步选项">⋯</summary>
+              <div class="menu-popover">
+                <button class="plain-button" type="button" id="full-sync">完整校准</button>
+              </div>
+            </details>
+          </div>
+        </div>
+      </header>
+      <p id="service-notice" class="notice" role="status" hidden></p>
+      <p id="feedback" class="notice" role="status" hidden></p>
+
+      <section id="inbox-view" aria-label="通知">
+        <div class="inbox-board" id="inbox-board">
+          <section class="list-panel" aria-labelledby="list-heading">
+            <h2 id="list-heading" class="sr-only">通知分组</h2>
+            <div class="list-head">
+              <div class="segments" id="filters" aria-label="通知类型">
+                <button class="segment" type="button" data-filter="all" aria-pressed="true">全部</button>
+                <button class="segment" type="button" data-filter="pr" aria-pressed="false">PR</button>
+                <button class="segment" type="button" data-filter="issue" aria-pressed="false">Issue</button>
+                <button class="segment" type="button" data-filter="unassigned" aria-pressed="false">其他 <span id="unassigned-count"></span></button>
+              </div>
+              <div class="search" id="search-area">
+                <span class="search-icon" aria-hidden="true"></span>
+                <label class="sr-only" for="search">搜索仓库、标题或发件人</label>
+                <input type="search" id="search" maxlength="512" placeholder="搜索仓库、标题或发件人" autocomplete="off">
+              </div>
+            </div>
+            <div class="list-toolbar" id="list-toolbar">
+              <label class="select-page" id="select-page"><input type="checkbox" id="select-all"> <span>本页全选</span></label>
+              <span class="list-count" id="list-count" aria-live="polite"></span>
+              <button type="button" id="mark-selected" class="plain-button accent" disabled>标记已读</button>
+            </div>
+            <div id="rows" aria-busy="true"></div>
+            <nav class="pager" id="pager" aria-label="通知分页" hidden>
+              <button type="button" id="prev" class="button">上一页</button>
+              <span id="page-number"></span>
+              <button type="button" id="next" class="button">下一页</button>
+            </nav>
+          </section>
+
+          <section class="detail-panel" id="detail" aria-label="通知详情">
+            <button type="button" class="plain-button accent detail-back" id="detail-back"><span aria-hidden="true">‹</span> 返回通知列表</button>
+            <div id="detail-content"></div>
+          </section>
+        </div>
+      </section>
+
+      <section id="dashboard-view" class="secondary" aria-label="运行概览" hidden>
+        <div id="dashboard-content"></div>
+      </section>
+      <section id="settings-view" class="secondary" aria-label="设置" hidden>
+        <div id="settings-content"></div>
+      </section>
+    </div>
+  </main>
+
+  <dialog id="read-confirm" aria-labelledby="read-title">
+    <form method="dialog">
+      <h2 id="read-title">标记已读</h2>
+      <p id="read-copy"></p>
+      <div class="dialog-actions">
+        <button class="button" value="cancel" autofocus>取消</button>
+        <button class="button primary" value="read" id="confirm-read">标记已读</button>
+      </div>
+    </form>
+  </dialog>
+</body>
+</html>

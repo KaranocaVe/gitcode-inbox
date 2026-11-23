@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  workflow_call:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  JAVA_VERSION: '21'
+
+jobs:
+  verify:
+    name: Maven verify
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: maven
+      - name: Verify
+        run: mvn -B -ntp verify
+
+  image-smoke:
+    name: Container smoke test
+    needs: verify
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Build image
+        run: docker build --tag gitcode-inbox:ci --build-arg APP_VERSION=${GITHUB_SHA} .
+      - name: Start demo container
+        run: |
+          docker run --detach --name gitcode-inbox-ci \
+            --env INBOX_MODE=demo \
+            --env INBOX_DB=/data/inbox.sqlite \
+            --publish 18080:8080 \
+            gitcode-inbox:ci
+      - name: Wait for actuator health
+        run: |
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:18080/actuator/health >/dev/null &&
+               curl --fail --silent http://127.0.0.1:18080/api/v1/status | jq -e '.unread_total > 0' >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs gitcode-inbox-ci
+          exit 1
+      - name: Stop container
+        if: always()
+        run: docker rm --force gitcode-inbox-ci
